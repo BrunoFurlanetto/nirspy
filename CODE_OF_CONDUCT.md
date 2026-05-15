@@ -10,6 +10,6 @@ Traduções oficiais: https://www.contributor-covenant.org/translations/
 
 Comportamentos que violem o código podem ser reportados ao mantenedor:
 
-- E-mail: ti.peraltas@gmail.com
+- E-mail: bruno.furlanetto@hotmail.com
 
 Reports são tratados com confidencialidade. Resposta esperada em até 7 dias.
