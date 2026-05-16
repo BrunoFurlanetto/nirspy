@@ -24,16 +24,29 @@ from nirspy.engine.cache_adapter import InMemoryCacheAdapter
 
 @dataclasses.dataclass
 class _FakeBlockImpl:
-    """Minimal Block implementation that satisfies the Block Protocol."""
+    """Minimal Block implementation that satisfies the Block Protocol.
+
+    Implements the ADR-009 signature: ``run(context, inputs)``.
+    Params are stored in ``self.params`` (set at construction time) and NOT
+    passed through ``run``.  When ``inputs`` is non-empty, the single upstream
+    value is passed through as-is so linear chain tests work correctly.
+    """
 
     _spec: BlockSpec
+    params: Any = None
 
     @property
     def spec(self) -> BlockSpec:
         return self._spec
 
-    def run(self, data: Any, params: Any, context: Any) -> BlockResult:
-        # Pass data through unchanged by default.
+    def run(self, context: Any, inputs: dict[str, Any]) -> BlockResult:
+        # For a linear pipeline: if there is one upstream result, pass its data
+        # through unchanged.  For the first block (inputs={}), return None so
+        # tests can verify the empty-inputs contract explicitly.
+        if inputs:
+            data = next(iter(inputs.values()))
+        else:
+            data = None
         return BlockResult(data=data, block_id=self._spec.block_id)
 
 
@@ -45,8 +58,16 @@ def make_block(
     enabled: bool = True,
     params_class: type[Any] | None = None,
     description: str = "",
+    params: Any = None,
 ) -> Block:
-    """Factory that creates a lightweight fake Block for testing."""
+    """Factory that creates a lightweight fake Block for testing.
+
+    Parameters
+    ----------
+    params:
+        Optional params instance stored as ``block.params`` (ADR-009).
+        Allows tests to verify that blocks access params via ``self``.
+    """
     spec = BlockSpec(
         block_id=block_id,
         display_name=block_id,
@@ -56,7 +77,7 @@ def make_block(
         params_class=params_class,
         description=description,
     )
-    return _FakeBlockImpl(spec)  # type: ignore[return-value]
+    return _FakeBlockImpl(spec, params=params)  # type: ignore[return-value]
 
 
 @pytest.fixture()

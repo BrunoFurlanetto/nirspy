@@ -127,12 +127,37 @@ class TestBlockProtocol:
     def test_run_returns_block_result(
         self, fake_block_raw_to_raw: Block, default_context: Any
     ) -> None:
-        result = fake_block_raw_to_raw.run("input_data", None, default_context)
+        # New signature: run(context, inputs) — ADR-009
+        result = fake_block_raw_to_raw.run(default_context, {})
         assert isinstance(result, BlockResult)
 
     def test_run_passes_data_through(
         self, fake_block_raw_to_raw: Block, default_context: Any
     ) -> None:
+        # When inputs carries one upstream value, FakeBlock passes it through.
         sentinel = object()
-        result = fake_block_raw_to_raw.run(sentinel, None, default_context)
+        result = fake_block_raw_to_raw.run(
+            default_context, {"upstream": sentinel}
+        )
         assert result.data is sentinel
+
+    def test_run_first_block_receives_empty_inputs(
+        self, fake_block_raw_to_raw: Block, default_context: Any
+    ) -> None:
+        # First block in a pipeline always receives inputs={}.
+        result = fake_block_raw_to_raw.run(default_context, {})
+        assert result.block_id == fake_block_raw_to_raw.spec.block_id
+
+    def test_params_accessible_via_self(self, default_context: Any) -> None:
+        # ADR-009: blocks receive params at construction time, not via run().
+        import dataclasses as _dc
+
+        @_dc.dataclass
+        class _P:
+            threshold: float = 0.5
+
+        from tests.conftest import make_block as _mb
+        from nirspy.domain.data_types import DataType as _DT
+
+        block = _mb("with_params", _DT.RAW, _DT.RAW, params=_P(threshold=0.9))
+        assert block.params.threshold == 0.9  # type: ignore[attr-defined]
