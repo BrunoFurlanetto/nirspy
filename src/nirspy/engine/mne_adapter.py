@@ -60,6 +60,8 @@ class MNEAdapter:
         try:
             raw: mne.io.BaseRaw = mne.io.read_raw_snirf(str(path), preload=True, verbose=False)
         except Exception as exc:  # noqa: BLE001
-            raise SnirfLoadError(f"Failed to load SNIRF file '{path}': {exc}") from exc
+            raise SnirfLoadError(
+                f"Failed to load SNIRF file '{path}': {exc}", mne_exception=exc
+            ) from exc
 
         return raw

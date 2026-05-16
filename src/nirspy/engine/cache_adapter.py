@@ -64,8 +64,19 @@ class InMemoryCacheAdapter:
     def set(self, key: str, value: Any) -> None:
         self._store[key] = value
 
-    def delete(self, key: str) -> None:
+    def invalidate(self, key: str) -> None:
+        """Remove the entry for *key*. No-op if absent."""
         self._store.pop(key, None)
+
+    def invalidate_from(self, key_prefix: str) -> int:
+        """Remove all entries whose key starts with *key_prefix*.
+
+        Returns the number of entries removed.
+        """
+        matching = [k for k in self._store if k.startswith(key_prefix)]
+        for k in matching:
+            del self._store[k]
+        return len(matching)
 
     def clear(self) -> None:
         self._store.clear()
@@ -91,8 +102,21 @@ class DiskCacheAdapter:
     def set(self, key: str, value: Any) -> None:
         self._cache.set(key, value)
 
-    def delete(self, key: str) -> None:
+    def invalidate(self, key: str) -> None:
+        """Remove the entry for *key*. No-op if absent."""
         self._cache.delete(key)
+
+    def invalidate_from(self, key_prefix: str) -> int:
+        """Remove all entries whose key starts with *key_prefix*.
+
+        Returns the number of entries removed.
+
+        Complexity: O(n_cached_keys) — acceptable for E1 pipeline sizes.
+        """
+        matching = [k for k in self._cache if isinstance(k, str) and k.startswith(key_prefix)]
+        for k in matching:
+            self._cache.delete(k)
+        return len(matching)
 
     def clear(self) -> None:
         self._cache.clear()
