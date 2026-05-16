@@ -36,7 +36,13 @@ class ExecutionContext:
     """Callback invoked after each block completes. Defaults to a no-op."""
 
     extra: dict[str, Any] = field(default_factory=dict)
-    """Extension point for future runners (e.g. distributed context IDs)."""
+    """Extension point for future runners (e.g. distributed context IDs).
+
+    The linear runner stores the previous block's metadata here under
+    ``"prev_metadata"`` so downstream blocks can access upstream diagnostics
+    (e.g. SCI values for channel pruning). Individual metadata keys are also
+    promoted to top-level extra keys when present (e.g. ``"sci_values"``).
+    """
 
 
 def run_pipeline_sync(
@@ -49,6 +55,12 @@ def run_pipeline_sync(
     for loading or generating its own data (e.g. reading from disk via its own
     ``self.params``).  Each subsequent block receives
     ``inputs={prev_block_id: prev_result.data}``.
+
+    Metadata propagation (ADR-014):
+        After each block completes, its ``BlockResult.metadata`` is stored in
+        ``context.extra["prev_metadata"]``. Individual keys are also promoted
+        to ``context.extra`` for convenient access by downstream blocks
+        (e.g. ``context.extra["sci_values"]``).
 
     Parameters
     ----------
@@ -92,6 +104,11 @@ def run_pipeline_sync(
             raise ExecutionError(
                 f"Block '{block.spec.block_id}' failed at step {idx + 1}/{total}: {exc}"
             ) from exc
+
+        # Propagate metadata to context.extra for downstream blocks (ADR-014)
+        context.extra["prev_metadata"] = result.metadata
+        for key, value in result.metadata.items():
+            context.extra[key] = value
 
         context.progress(block.spec.block_id, idx + 1, total)
         results.append(result)
