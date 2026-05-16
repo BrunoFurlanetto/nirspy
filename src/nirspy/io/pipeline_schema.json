@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BrunoFurlanetto/nirspy/blob/main/src/nirspy/io/pipeline_schema.json",
+  "title": "nirspy Pipeline",
+  "description": "Schema for nirspy pipeline YAML files (schema_version 0.1). This file is documentation — it is not used as a runtime validator.",
+  "type": "object",
+  "required": ["schema_version", "name", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema version. Bump minor (0.x) for backward-compatible changes, major (x.0) for breaking changes."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable pipeline name.",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional free-form description of the pipeline.",
+      "default": ""
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered list of blocks. Execution follows list order.",
+      "items": {
+        "type": "object",
+        "required": ["block_id"],
+        "additionalProperties": false,
+        "properties": {
+          "block_id": {
+            "type": "string",
+            "description": "Identifier matching a registered block (e.g. 'load_snirf').",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "When false the block is skipped during execution.",
+            "default": true
+          }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "description": "Maps block_id to its parameter dict. Only blocks with params need an entry.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Params for a specific block. Keys depend on the block's params_class."
+      },
+      "examples": [
+        {
+          "load_snirf": {
+            "path": "/data/subject01.snirf"
+          }
+        }
+      ]
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "0.1",
+      "name": "minimal-load",
+      "description": "Load a single SNIRF file.",
+      "steps": [
+        {
+          "block_id": "load_snirf",
+          "enabled": true
+        }
+      ],
+      "params": {
+        "load_snirf": {
+          "path": "/data/subject01.snirf"
+        }
+      }
+    }
+  ]
+}
