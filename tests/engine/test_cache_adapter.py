@@ -50,13 +50,13 @@ class TestInMemoryCacheAdapter:
         mem_cache.set("k", 2)
         assert mem_cache.get("k") == 2
 
-    def test_delete_existing(self, mem_cache: InMemoryCacheAdapter) -> None:
+    def test_invalidate_existing(self, mem_cache: InMemoryCacheAdapter) -> None:
         mem_cache.set("k", "v")
-        mem_cache.delete("k")
+        mem_cache.invalidate("k")
         assert mem_cache.get("k") is None
 
-    def test_delete_absent_is_noop(self, mem_cache: InMemoryCacheAdapter) -> None:
-        mem_cache.delete("ghost")  # must not raise
+    def test_invalidate_absent_is_noop(self, mem_cache: InMemoryCacheAdapter) -> None:
+        mem_cache.invalidate("ghost")  # must not raise
 
     def test_clear(self, mem_cache: InMemoryCacheAdapter) -> None:
         for i in range(5):
@@ -77,6 +77,35 @@ class TestInMemoryCacheAdapter:
         assert c2.get("x") is None
 
 
+class TestInMemoryCacheAdapterInvalidateFrom:
+    """invalidate_from on InMemoryCacheAdapter."""
+
+    def test_returns_zero_when_no_match(self, mem_cache: InMemoryCacheAdapter) -> None:
+        mem_cache.set("alpha:1", "a")
+        assert mem_cache.invalidate_from("beta:") == 0
+
+    def test_removes_matching_keys(self, mem_cache: InMemoryCacheAdapter) -> None:
+        mem_cache.set("blk:hash1", "r1")
+        mem_cache.set("blk:hash2", "r2")
+        mem_cache.set("other:hash1", "keep")
+        mem_cache.invalidate_from("blk:")
+        assert mem_cache.get("blk:hash1") is None
+        assert mem_cache.get("blk:hash2") is None
+        assert mem_cache.get("other:hash1") == "keep"
+
+    def test_returns_correct_count(self, mem_cache: InMemoryCacheAdapter) -> None:
+        for i in range(4):
+            mem_cache.set(f"load:{i}", i)
+        mem_cache.set("other:0", "keep")
+        removed = mem_cache.invalidate_from("load:")
+        assert removed == 4
+
+    def test_idempotent_second_call(self, mem_cache: InMemoryCacheAdapter) -> None:
+        mem_cache.set("x:1", "v")
+        mem_cache.invalidate_from("x:")
+        assert mem_cache.invalidate_from("x:") == 0
+
+
 # ---------------------------------------------------------------------------
 # DiskCacheAdapter
 # ---------------------------------------------------------------------------
@@ -95,13 +124,13 @@ class TestDiskCacheAdapter:
         disk_cache.set("k", "new")
         assert disk_cache.get("k") == "new"
 
-    def test_delete_existing(self, disk_cache: DiskCacheAdapter) -> None:
+    def test_invalidate_existing(self, disk_cache: DiskCacheAdapter) -> None:
         disk_cache.set("k", "v")
-        disk_cache.delete("k")
+        disk_cache.invalidate("k")
         assert disk_cache.get("k") is None
 
-    def test_delete_absent_is_noop(self, disk_cache: DiskCacheAdapter) -> None:
-        disk_cache.delete("nonexistent")  # must not raise
+    def test_invalidate_absent_is_noop(self, disk_cache: DiskCacheAdapter) -> None:
+        disk_cache.invalidate("nonexistent")  # must not raise
 
     def test_clear(self, disk_cache: DiskCacheAdapter) -> None:
         disk_cache.set("a", 1)
@@ -127,6 +156,35 @@ class TestDiskCacheAdapter:
         adapter = DiskCacheAdapter(directory=new_dir)
         assert new_dir.exists()
         adapter.close()
+
+
+class TestDiskCacheAdapterInvalidateFrom:
+    """invalidate_from on DiskCacheAdapter."""
+
+    def test_returns_zero_when_no_match(self, disk_cache: DiskCacheAdapter) -> None:
+        disk_cache.set("alpha:1", "a")
+        assert disk_cache.invalidate_from("beta:") == 0
+
+    def test_removes_matching_keys(self, disk_cache: DiskCacheAdapter) -> None:
+        disk_cache.set("blk:hash1", "r1")
+        disk_cache.set("blk:hash2", "r2")
+        disk_cache.set("other:hash1", "keep")
+        disk_cache.invalidate_from("blk:")
+        assert disk_cache.get("blk:hash1") is None
+        assert disk_cache.get("blk:hash2") is None
+        assert disk_cache.get("other:hash1") == "keep"
+
+    def test_returns_correct_count(self, disk_cache: DiskCacheAdapter) -> None:
+        for i in range(4):
+            disk_cache.set(f"load:{i}", i)
+        disk_cache.set("other:0", "keep")
+        removed = disk_cache.invalidate_from("load:")
+        assert removed == 4
+
+    def test_idempotent_second_call(self, disk_cache: DiskCacheAdapter) -> None:
+        disk_cache.set("x:1", "v")
+        disk_cache.invalidate_from("x:")
+        assert disk_cache.invalidate_from("x:") == 0
 
 
 # ---------------------------------------------------------------------------

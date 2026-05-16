@@ -10,7 +10,7 @@ import pathlib
 
 import pytest
 
-from nirspy.engine.exceptions import SnirfLoadError
+from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 from nirspy.engine.mne_adapter import MNEAdapter, RawWrapper
 
 
@@ -47,6 +47,35 @@ class TestMNEAdapterLoadSnirfErrors:
         with pytest.raises(SnirfLoadError) as exc_info:
             adapter.load_snirf(missing)
         assert "mydata.snirf" in str(exc_info.value)
+
+    def test_snirf_load_error_is_mne_operation_error(
+        self, adapter: MNEAdapter, tmp_path: pathlib.Path
+    ) -> None:
+        """SnirfLoadError must be catchable as MNEOperationError (hierarchy test)."""
+        missing = tmp_path / "hierarchy_test.snirf"
+        with pytest.raises(MNEOperationError):
+            adapter.load_snirf(missing)
+
+    def test_invalid_file_wraps_mne_exception(
+        self, adapter: MNEAdapter, tmp_path: pathlib.Path
+    ) -> None:
+        """When MNE raises internally, SnirfLoadError must expose mne_exception."""
+        bad_file = tmp_path / "corrupt.snirf"
+        bad_file.write_bytes(b"garbage bytes that are not hdf5")
+        with pytest.raises(SnirfLoadError) as exc_info:
+            adapter.load_snirf(bad_file)
+        # mne_exception is set for file-parse failures (not for missing-file branch)
+        assert exc_info.value.mne_exception is not None
+
+    def test_snirf_load_error_is_catchable_as_engine_error(
+        self, adapter: MNEAdapter, tmp_path: pathlib.Path
+    ) -> None:
+        """Callers using except EngineError must catch SnirfLoadError."""
+        from nirspy.engine.exceptions import EngineError
+
+        missing = tmp_path / "engine_catch_test.snirf"
+        with pytest.raises(EngineError):
+            adapter.load_snirf(missing)
 
 
 # ---------------------------------------------------------------------------
