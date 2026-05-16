@@ -3,8 +3,16 @@
 from __future__ import annotations
 
 
-class DomainError(Exception):
-    """Base class for all domain errors."""
+class NirspyError(Exception):
+    """Root of the nirspy exception hierarchy.
+
+    GUI code can use ``except NirspyError`` to catch all package errors
+    without coupling to specific domain or engine subclasses.
+    """
+
+
+class DomainError(NirspyError):
+    """Base class for all domain-layer errors."""
 
 
 class ValidationError(DomainError):
