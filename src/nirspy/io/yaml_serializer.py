@@ -47,7 +47,7 @@ Usage
     from nirspy.io.yaml_serializer import dump_pipeline, load_pipeline
 
     # serialise
-    dump_pipeline(pipeline, Path("pipeline.yml"))
+    dump_pipeline(pipeline, Path("pipeline.yml"), overwrite=True)
 
     # deserialise
     pipeline2 = load_pipeline(Path("pipeline.yml"), registry)
@@ -73,7 +73,7 @@ _SCHEMA_VERSION = "0.1"
 # ---------------------------------------------------------------------------
 
 
-def dump_pipeline(pipeline: Pipeline, path: Path) -> None:
+def dump_pipeline(pipeline: Pipeline, path: Path, *, overwrite: bool = False) -> None:
     """Serialise *pipeline* to a YAML file at *path*.
 
     Parameters
@@ -83,7 +83,20 @@ def dump_pipeline(pipeline: Pipeline, path: Path) -> None:
         ``block.params`` when ``block.spec.params_class`` is not ``None``.
     path:
         Destination file.  Parent directories must exist.
+    overwrite:
+        When *False* (default), raise :class:`FileExistsError` if *path*
+        already exists.  Set to *True* to silently replace the file.
+
+    Raises
+    ------
+    FileExistsError
+        When *path* exists and *overwrite* is *False*.
     """
+    if not overwrite and path.exists():
+        raise FileExistsError(
+            f"Cannot write pipeline: '{path}' already exists. "
+            f"Pass overwrite=True to replace the existing file."
+        )
     data = _pipeline_to_dict(pipeline)
     yaml_text = yaml.dump(
         data,
