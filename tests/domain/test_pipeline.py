@@ -18,20 +18,55 @@ from tests.conftest import make_block
 # ---------------------------------------------------------------------------
 
 
-class FakeRegistry:
-    """In-memory registry satisfying RegistryProtocol."""
+def _block_class_from_instance(block: Block) -> type[Block]:
+    """Return a no-arg-constructible class whose instances carry *block*'s spec.
 
-    def __init__(self, blocks: dict[str, Block]) -> None:
+    ``Pipeline.from_dict`` calls ``block_cls()`` (no arguments) on whatever the
+    registry returns.  ``_FakeBlockImpl`` requires ``_spec`` at construction time,
+    so we synthesise a thin subclass that bakes the spec in via a default argument.
+    """
+    from tests.conftest import _FakeBlockImpl  # local import to avoid circular ref
+
+    spec = block.spec
+
+    class _BoundFakeBlock(_FakeBlockImpl):
+        def __init__(self) -> None:  # type: ignore[override]
+            super().__init__(_spec=spec)
+
+    _BoundFakeBlock.__name__ = f"FakeBlock_{spec.block_id}"
+    _BoundFakeBlock.__qualname__ = f"FakeBlock_{spec.block_id}"
+    return _BoundFakeBlock  # type: ignore[return-value]
+
+
+class FakeRegistry:
+    """In-memory registry satisfying RegistryProtocol.
+
+    Stores block **classes** (``type[Block]``), not instances, mirroring the
+    post-ADR-009 ``RegistryProtocol`` contract.
+    """
+
+    def __init__(self, blocks: dict[str, type[Block]]) -> None:
         self._blocks = blocks
 
-    def get(self, block_id: str) -> Block:
+    def get(self, block_id: str) -> type[Block]:
         if block_id not in self._blocks:
             raise KeyError(f"Unknown block_id: {block_id!r}")
         return self._blocks[block_id]
 
+    def register(self, block_id: str, block_cls: type[Block]) -> None:
+        self._blocks[block_id] = block_cls
+
+    def list_blocks(self) -> list[str]:
+        return sorted(self._blocks)
+
 
 def _make_registry(*blocks: Block) -> FakeRegistry:
-    return FakeRegistry({b.spec.block_id: b for b in blocks})
+    """Build a FakeRegistry from existing Block *instances*.
+
+    Each instance is converted to a no-arg-constructible class so that
+    ``Pipeline.from_dict`` can call ``block_cls()`` successfully.
+    """
+    return FakeRegistry({b.spec.block_id: _block_class_from_instance(b) for b in blocks})
 
 
 # ---------------------------------------------------------------------------
