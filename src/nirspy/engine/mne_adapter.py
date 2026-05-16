@@ -163,3 +163,126 @@ class MNEAdapter:
             raise MNEOperationError(
                 f"bandpass_filter() failed: {exc}", mne_exception=exc
             ) from exc
+
+    # ------------------------------------------------------------------
+    # Quality Control (Etapa 3)
+    # ------------------------------------------------------------------
+
+    def scalp_coupling_index(self, raw: mne.io.BaseRaw) -> dict[str, float]:
+        """Compute Scalp Coupling Index per channel (Pollonini et al., 2014).
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with ``fnirs_od`` channels.
+
+        Returns
+        -------
+        dict[str, float]
+            Mapping of channel name to SCI value in [0, 1].
+
+        Raises
+        ------
+        MNEOperationError
+            When MNE raises any exception during computation.
+        """
+        try:
+            sci_array = mne.preprocessing.nirs.scalp_coupling_index(raw)
+            return dict(zip(raw.ch_names, sci_array.tolist(), strict=False))
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"scalp_coupling_index() failed: {exc}", mne_exception=exc
+            ) from exc
+
+    # ------------------------------------------------------------------
+    # Analysis (Etapa 3)
+    # ------------------------------------------------------------------
+
+    def create_epochs(
+        self,
+        raw: mne.io.BaseRaw,
+        tmin: float = -2.0,
+        tmax: float = 18.0,
+        baseline_tmin: float = -2.0,
+        baseline_tmax: float = 0.0,
+        reject: dict[str, float] | None = None,
+        event_id: dict[str, int] | None = None,
+    ) -> mne.Epochs:
+        """Create epochs from annotations in the Raw object.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with annotations marking stimulus events.
+        tmin, tmax:
+            Epoch window relative to event onset (seconds).
+        baseline_tmin, baseline_tmax:
+            Baseline correction window.
+        reject:
+            Channel-type rejection thresholds (e.g. {"hbo": 80e-6}).
+        event_id:
+            Optional mapping of condition names to event codes.
+            If None, all annotation-derived events are used.
+
+        Returns
+        -------
+        mne.Epochs
+            Epoched data.
+
+        Raises
+        ------
+        MNEOperationError
+            When MNE raises any exception during epoching.
+        """
+        try:
+            events, auto_event_id = mne.events_from_annotations(
+                raw, verbose=False
+            )
+            used_event_id = event_id if event_id is not None else auto_event_id
+            epochs = mne.Epochs(
+                raw,
+                events,
+                event_id=used_event_id,
+                tmin=tmin,
+                tmax=tmax,
+                baseline=(baseline_tmin, baseline_tmax),
+                reject=reject,
+                preload=True,
+                verbose=False,
+            )
+            return epochs
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"create_epochs() failed: {exc}", mne_exception=exc
+            ) from exc
+
+    def average_epochs(
+        self, epochs: mne.Epochs
+    ) -> dict[str, mne.Evoked]:
+        """Average epochs per condition, returning dict of Evoked.
+
+        Parameters
+        ----------
+        epochs:
+            MNE Epochs object (preloaded).
+
+        Returns
+        -------
+        dict[str, mne.Evoked]
+            Mapping of condition name to averaged Evoked.
+
+        Raises
+        ------
+        MNEOperationError
+            When MNE raises any exception during averaging.
+        """
+        try:
+            result: dict[str, mne.Evoked] = {}
+            for condition in epochs.event_id:
+                evoked = epochs[condition].average()
+                result[condition] = evoked
+            return result
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"average_epochs() failed: {exc}", mne_exception=exc
+            ) from exc
