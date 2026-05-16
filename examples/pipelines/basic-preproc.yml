@@ -1,0 +1,20 @@
+# Basic fNIRS preprocessing pipeline -- T-003
+# LoadSnirf > OpticalDensity > BandpassFilter > BeerLambert
+schema_version: '0.1'
+pipeline:
+  name: basic-preproc
+  description: Minimal preprocessing -- OD, bandpass, mBLL.
+  blocks:
+    - block_id: load_snirf
+      params:
+        path: data/sample.snirf
+    - block_id: optical_density
+      params: {}
+    - block_id: bandpass_filter
+      params:
+        l_freq: 0.01
+        h_freq: 0.5
+        method: iir
+    - block_id: beer_lambert
+      params:
+        ppf: 6.0
