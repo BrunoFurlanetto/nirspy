@@ -39,6 +39,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "hatchling>=1.25",
+    "types-PyYAML>=6.0",
 ]
 docs = [
     "mkdocs-material>=9.5",
@@ -71,6 +72,12 @@ packages = ["nirspy"]
 [[tool.mypy.overrides]]
 # mne, mne_nirs and diskcache do not ship py.typed or stubs; suppress import-untyped.
 module = ["mne", "mne.*", "mne_nirs", "mne_nirs.*", "diskcache", "diskcache.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# yaml (pyyaml) stubs are in types-PyYAML; listed as dev dependency.
+# Suppress until stubs are installed in CI.
+module = ["yaml"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
