@@ -10,6 +10,9 @@ class CacheProtocol(Protocol):
 
     Keys are strings; values are arbitrary objects. Concrete adapters live in
     ``nirspy.engine.cache_adapter``.
+
+    Key convention (enforced by the executor, not this Protocol):
+        ``"{block_id}:{hash_inputs}:{hash_params}"``
     """
 
     def get(self, key: str) -> Any | None:
@@ -20,8 +23,16 @@ class CacheProtocol(Protocol):
         """Store *value* under *key*, overwriting any existing entry."""
         ...
 
-    def delete(self, key: str) -> None:
+    def invalidate(self, key: str) -> None:
         """Remove the entry for *key*. No-op if absent."""
+        ...
+
+    def invalidate_from(self, key_prefix: str) -> int:
+        """Remove all entries whose key starts with *key_prefix*.
+
+        Returns the number of entries removed.  Used by the executor to
+        cascade-invalidate downstream blocks when params change.
+        """
         ...
 
     def clear(self) -> None:

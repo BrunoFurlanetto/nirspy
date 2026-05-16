@@ -41,17 +41,19 @@ class ExecutionContext:
 
 def run_pipeline_sync(
     pipeline: Pipeline,
-    initial_data: Any,
     context: ExecutionContext | None = None,
 ) -> list[BlockResult]:
     """Execute *pipeline* synchronously, passing data through enabled blocks in order.
+
+    The first block in the pipeline receives ``inputs={}`` — it is responsible
+    for loading or generating its own data (e.g. reading from disk via its own
+    ``self.params``).  Each subsequent block receives
+    ``inputs={prev_block_id: prev_result.data}``.
 
     Parameters
     ----------
     pipeline:
         The :class:`~nirspy.domain.pipeline.Pipeline` to execute.
-    initial_data:
-        Data passed as input to the first block.
     context:
         Optional :class:`ExecutionContext`. A default (no cache, no-op progress)
         is created when omitted.
@@ -72,12 +74,20 @@ def run_pipeline_sync(
     enabled_steps = [step for step in pipeline.steps if step.spec.enabled]
     total = len(enabled_steps)
     results: list[BlockResult] = []
-    current_data = initial_data
+    prev_result: BlockResult | None = None
 
     for idx, block in enumerate(enabled_steps):
-        params = pipeline.params.get(block.spec.block_id)
+        # Build the inputs dict: empty for the first block, one entry for all
+        # subsequent blocks in a linear pipeline (E1).  When the architecture
+        # evolves to DAG (v1.0+) the executor will resolve multiple upstreams
+        # here — the block.run signature does not change.
+        if prev_result is None:
+            inputs: dict[str, Any] = {}
+        else:
+            inputs = {prev_result.block_id: prev_result.data}
+
         try:
-            result = block.run(current_data, params, context)
+            result = block.run(context, inputs)
         except Exception as exc:  # noqa: BLE001
             raise ExecutionError(
                 f"Block '{block.spec.block_id}' failed at step {idx + 1}/{total}: {exc}"
@@ -85,6 +95,6 @@ def run_pipeline_sync(
 
         context.progress(block.spec.block_id, idx + 1, total)
         results.append(result)
-        current_data = result.data
+        prev_result = result
 
     return results
