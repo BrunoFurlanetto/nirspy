@@ -9,6 +9,22 @@ Blocks register themselves using the :func:`register` decorator::
 
     @registry.register("load_snirf")
     class LoadSnirfBlock: ...
+
+Design note (ADR-009)
+---------------------
+The registry stores **classes** (``type[Block]``), not instances.  Callers are
+responsible for instantiating blocks with the appropriate params object before
+assembling a :class:`~nirspy.domain.pipeline.Pipeline`.  This model is
+required because every concrete block expects a params dataclass in its
+``__init__`` — a no-argument instantiation is no longer possible.
+
+The :class:`~nirspy.domain.pipeline.RegistryProtocol` declared in the domain
+layer expects ``get() -> Block`` (an instance), which is incompatible with the
+new class-based storage.  For Etapa 1, :func:`~nirspy.io.yaml_serializer`
+accepts a ``BlockRegistry`` directly (instead of the Protocol) and calls
+:meth:`get` to obtain the class, then instantiates it with the deserialized
+params.  The Protocol will be revisited when the domain executor needs to
+perform its own class resolution.
 """
 
 from __future__ import annotations
@@ -24,20 +40,21 @@ _T = TypeVar("_T")
 
 class BlockRegistry:
     """Concrete registry that maps ``block_id`` strings to :class:`~nirspy.domain.block.Block`
-    instances.
+    **classes** (not instances).
 
-    Satisfies :class:`~nirspy.domain.pipeline.RegistryProtocol` structurally.
+    Each call to :meth:`get` returns the class so callers can instantiate it
+    with the appropriate ``params`` object.
     """
 
     def __init__(self) -> None:
-        self._blocks: dict[str, Block] = {}
+        self._classes: dict[str, type[Block]] = {}
 
     # ------------------------------------------------------------------
-    # RegistryProtocol interface
+    # Primary interface
     # ------------------------------------------------------------------
 
-    def get(self, block_id: str) -> Block:
-        """Return the block registered under *block_id*.
+    def get(self, block_id: str) -> type[Block]:
+        """Return the block **class** registered under *block_id*.
 
         Raises
         ------
@@ -45,9 +62,9 @@ class BlockRegistry:
             When *block_id* is not registered.
         """
         try:
-            return self._blocks[block_id]
+            return self._classes[block_id]
         except KeyError:
-            registered = ", ".join(sorted(self._blocks))
+            registered = ", ".join(sorted(self._classes))
             raise KeyError(
                 f"Block '{block_id}' not found in registry. "
                 f"Registered blocks: [{registered}]"
@@ -57,24 +74,24 @@ class BlockRegistry:
     # Management helpers
     # ------------------------------------------------------------------
 
-    def register(self, block_id: str, block: Block) -> None:
-        """Register *block* under *block_id*.
+    def register(self, block_id: str, block_cls: type[Block]) -> None:
+        """Register *block_cls* under *block_id*.
 
         Parameters
         ----------
         block_id:
             String key used by the serialiser and pipeline loader.
-        block:
-            Instance of a class satisfying :class:`~nirspy.domain.block.Block`.
+        block_cls:
+            A class satisfying :class:`~nirspy.domain.block.Block`.
         """
-        self._blocks[block_id] = block
+        self._classes[block_id] = block_cls
 
     def list_blocks(self) -> list[str]:
         """Return a sorted list of all registered block IDs."""
-        return sorted(self._blocks)
+        return sorted(self._classes)
 
     def __contains__(self, block_id: object) -> bool:
-        return block_id in self._blocks
+        return block_id in self._classes
 
     def __repr__(self) -> str:
         ids = ", ".join(self.list_blocks())
@@ -89,9 +106,10 @@ registry = BlockRegistry()
 
 
 def register(block_id: str) -> Callable[[type[_T]], type[_T]]:
-    """Class decorator that registers a block class instance in the default :data:`registry`.
+    """Class decorator that registers a block **class** in the default :data:`registry`.
 
-    The decorated class is instantiated with no arguments and stored under *block_id*.
+    Unlike the previous implementation, the class is stored directly — no
+    instantiation happens at decoration time, consistent with ADR-009.
 
     Example
     -------
@@ -103,7 +121,7 @@ def register(block_id: str) -> Callable[[type[_T]], type[_T]]:
     """
 
     def _decorator(cls: type[_T]) -> type[_T]:
-        registry.register(block_id, cls())  # type: ignore[arg-type]
+        registry.register(block_id, cls)  # type: ignore[arg-type]
         return cls
 
     return _decorator

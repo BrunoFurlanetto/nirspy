@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import mne.io
 
 from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.data_types import DataType
+from nirspy.domain.exceptions import ExecutionError
+from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 from nirspy.engine.mne_adapter import MNEAdapter
 
 
@@ -43,30 +45,51 @@ _SPEC = BlockSpec(
 class LoadSnirfBlock:
     """Block that loads a SNIRF file via MNE-NIRS and emits ``DataType.RAW``.
 
-    The block holds a stateless :class:`~nirspy.engine.mne_adapter.MNEAdapter` that
-    is lazily constructed on first use so tests can swap it out.
+    Parameters
+    ----------
+    params:
+        :class:`LoadSnirfParams` instance holding the file path. Stored as
+        ``self.params`` and accessed in :meth:`run` (ADR-009).
+    adapter:
+        Optional :class:`~nirspy.engine.mne_adapter.MNEAdapter` override.
+        Defaults to a freshly constructed :class:`MNEAdapter` so that tests
+        can inject a fake adapter without modifying production code.
+
+    Class attributes
+    ----------------
+    SPEC:
+        Class-level reference to the static :class:`~nirspy.domain.block.BlockSpec`
+        descriptor. Exposed here so the serialiser can read ``params_class``
+        from the class without instantiating it.
     """
 
-    def __init__(self, adapter: MNEAdapter | None = None) -> None:
-        self._adapter = adapter or MNEAdapter()
+    SPEC: ClassVar[BlockSpec] = _SPEC
+
+    def __init__(
+        self,
+        params: LoadSnirfParams,
+        adapter: MNEAdapter | None = None,
+    ) -> None:
+        self.params: LoadSnirfParams = params
+        self._adapter: MNEAdapter = adapter or MNEAdapter()
 
     @property
     def spec(self) -> BlockSpec:
         """Return the static block descriptor."""
         return _SPEC
 
-    def run(self, data: Any, params: Any, context: Any) -> BlockResult:
-        """Load the SNIRF file referenced in *params* and return a :class:`BlockResult`.
+    def run(self, context: Any, inputs: dict[str, Any]) -> BlockResult:
+        """Load the SNIRF file referenced in ``self.params`` and return a :class:`BlockResult`.
 
         Parameters
         ----------
-        data:
-            Ignored for the load block (no upstream data).
-        params:
-            A :class:`LoadSnirfParams` instance providing the file ``path``.
         context:
-            :class:`~nirspy.domain.execution.ExecutionContext` — unused here but
-            forwarded for interface compliance.
+            :class:`~nirspy.domain.execution.ExecutionContext` injected by the
+            runner — unused here but required by the :class:`~nirspy.domain.block.Block`
+            Protocol.
+        inputs:
+            Must be an empty dict (``{}``).  The load block is always the first
+            step in a linear pipeline and has no upstream dependency.
 
         Returns
         -------
@@ -76,11 +99,27 @@ class LoadSnirfBlock:
 
         Raises
         ------
+        ExecutionError
+            When *inputs* is non-empty (contract violation: load block must be first).
         ~nirspy.engine.exceptions.SnirfLoadError
-            When the file is missing or cannot be parsed.
+            When the file is missing or cannot be parsed (propagated from adapter).
+        ~nirspy.engine.exceptions.MNEOperationError
+            When MNE raises an unexpected error during loading.
         """
-        load_params: LoadSnirfParams = params
-        raw: mne.io.BaseRaw = self._adapter.load_snirf(Path(load_params.path))
+        if inputs:
+            raise ExecutionError(
+                "LoadSnirfBlock received non-empty inputs. "
+                "The load block must be the first block in the pipeline (inputs must be {})."
+            )
+
+        try:
+            raw: mne.io.BaseRaw = self._adapter.load_snirf(Path(self.params.path))
+        except (SnirfLoadError, MNEOperationError):
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ExecutionError(
+                f"LoadSnirfBlock failed to load '{self.params.path}': {exc}"
+            ) from exc
 
         return BlockResult(
             data=raw,
