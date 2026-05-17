@@ -56,17 +56,27 @@ def _find_evoked_dict(results: list[Any]) -> dict[str, Any] | None:
 
 
 def _find_sci_values(results: list[Any]) -> Any:
-    """Extract SCI values from block metadata."""
+    """Extract SCI values from block metadata.
+
+    ScalpCouplingIndexBlock stores ``sci_values`` as ``dict[str, float]``
+    keyed by channel name. Returns the list of float values in dict order.
+    """
     for r in results:
         sci = r.metadata.get("sci_values")
-        if sci is not None:
-            return sci
+        if sci is None:
+            continue
+        if isinstance(sci, dict):
+            return list(sci.values())
+        return sci
     return None
 
 
 def _find_sci_ch_names(results: list[Any]) -> list[str] | None:
     """Extract channel names associated with SCI values."""
     for r in results:
+        sci = r.metadata.get("sci_values")
+        if isinstance(sci, dict):
+            return list(sci.keys())
         ch_names = r.metadata.get("sci_ch_names")
         if ch_names is not None:
             return ch_names  # type: ignore[no-any-return]
