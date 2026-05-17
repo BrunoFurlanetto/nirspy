@@ -16,10 +16,35 @@ from nirspy.domain.data_types import DataType
 def _io_compat_indicator(
     output_type: DataType | None,
     input_type: DataType | None,
+    *,
+    is_first: bool = False,
 ) -> html.Span:
     """Small coloured dot between two blocks indicating type compatibility."""
     if output_type is None or input_type is None:
         return html.Span()
+
+    # Source block (NONE input): valid only at position 0
+    if input_type is DataType.NONE:
+        compatible = is_first
+        if compatible:
+            return html.Span()  # no dot needed
+        colour = "#dc3545"
+        return html.Span(
+            "●",
+            style={
+                "color": colour,
+                "fontSize": "12px",
+                "display": "block",
+                "textAlign": "center",
+                "lineHeight": "16px",
+            },
+            title="Source block must be first",
+        )
+
+    # NONE output from previous block: skip indicator (sink semantics, future)
+    if output_type is DataType.NONE:
+        return html.Span()
+
     compatible = (
         output_type is DataType.ANY
         or input_type is DataType.ANY
@@ -80,6 +105,7 @@ def render_block_card(
     compat_dot = _io_compat_indicator(
         DataType(prev_output_type) if prev_output_type else None,
         DataType(input_type),
+        is_first=is_first,
     )
 
     card = dbc.Card(

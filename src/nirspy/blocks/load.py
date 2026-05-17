@@ -123,7 +123,7 @@ _SPEC = BlockSpec(
     block_id="load_snirf",
     display_name="Load SNIRF",
     description="Load a SNIRF file and emit a MNE Raw object.",
-    input_type=DataType.ANY,
+    input_type=DataType.NONE,
     output_type=DataType.RAW,
     params_class=LoadSnirfParams,
 )
