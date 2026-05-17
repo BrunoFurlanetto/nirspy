@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a defect in NIRSPY
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in the
+        details below so we can reproduce it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Clear description of the unexpected behaviour.
+      placeholder: When I run `nirspy run pipeline.yml ...` the output ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Minimal pipeline.yml and dataset (or sample data ref).
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: nirspy-version
+    attributes:
+      label: NIRSPY version / commit
+      placeholder: "0.0.1 or commit sha"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.11.5"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "Ubuntu 22.04 / Windows 11 / macOS 14"
+    validations:
+      required: true
+
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback / logs
+      render: python

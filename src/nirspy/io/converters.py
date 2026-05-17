@@ -111,11 +111,11 @@ class NirsData:
         metadata:      Free-form metadata: SubjectID, SessionID, etc.
     """
 
-    data_matrix: np.ndarray
-    time_vector: np.ndarray
+    data_matrix: np.ndarray[Any, np.dtype[np.float64]]
+    time_vector: np.ndarray[Any, np.dtype[np.float64]]
     wavelengths: list[float]
-    source_pos: np.ndarray
-    detector_pos: np.ndarray
+    source_pos: np.ndarray[Any, np.dtype[np.float64]]
+    detector_pos: np.ndarray[Any, np.dtype[np.float64]]
     meas_list: list[MeasurementChannel]
     stim_events: list[StimEvent] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

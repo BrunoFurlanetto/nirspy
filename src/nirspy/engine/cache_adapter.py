@@ -90,7 +90,7 @@ class JSONDisk(diskcache.Disk):  # type: ignore[misc]
     write time rather than silently pickling.
     """
 
-    def store(  # type: ignore[override]
+    def store(
         self,
         value: Any,
         read: bool,
@@ -101,7 +101,7 @@ class JSONDisk(diskcache.Disk):  # type: ignore[misc]
             value = _serialize_value(value)
         return super().store(value, read, key=key)  # type: ignore[no-any-return]
 
-    def fetch(  # type: ignore[override]
+    def fetch(
         self,
         mode: int,
         filename: str | None,
