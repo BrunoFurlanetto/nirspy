@@ -1,9 +1,9 @@
 """Main layout for the NIRSPY Dash application.
 
 Three-panel layout:
-- Left sidebar: block catalog
-- Center: pipeline view (vertical list of blocks)
-- Right panel: parameter editor (placeholder for 5B)
+- Left sidebar: block catalog (populated from BlockRegistry)
+- Center: pipeline view (vertical list of block cards)
+- Right panel: parameter editor (auto-generated from dataclass fields)
 
 State management uses ``dcc.Store`` for pipeline state (JSON-serializable).
 """
@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import dash_bootstrap_components as dbc
 from dash import dcc, html
+
+from nirspy.blocks import registry
+from nirspy.gui.components.block_catalog import render_block_catalog
 
 
 def create_layout() -> dbc.Container:
@@ -45,12 +48,29 @@ def create_layout() -> dbc.Container:
             html.Hr(),
             html.Div(
                 id="block-catalog",
-                children=[
-                    html.P(
-                        "Available blocks will appear here.",
-                        className="text-muted small",
-                    )
+                children=[render_block_catalog(registry)],
+            ),
+            html.Hr(),
+            dbc.ButtonGroup(
+                [
+                    dbc.Button(
+                        "Save Pipeline",
+                        id="btn-save-pipeline",
+                        color="success",
+                        size="sm",
+                        className="me-1",
+                    ),
+                    dcc.Upload(
+                        id="upload-pipeline",
+                        children=dbc.Button(
+                            "Load Pipeline",
+                            color="info",
+                            size="sm",
+                        ),
+                        accept=".yaml,.yml",
+                    ),
                 ],
+                className="w-100",
             ),
         ],
         width=3,
@@ -100,11 +120,12 @@ def create_layout() -> dbc.Container:
         className="g-0",
     )
 
-    # Hidden stores for pipeline state (5B will populate these)
+    # Hidden stores for pipeline state + download component
     stores = html.Div(
         [
             dcc.Store(id="pipeline-state", data=[]),
             dcc.Store(id="selected-block", data=None),
+            dcc.Download(id="download-pipeline"),
         ]
     )
 
