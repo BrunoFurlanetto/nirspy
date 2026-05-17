@@ -68,3 +68,35 @@ class TestDumpPipelineOverwrite:
         content = target.read_text(encoding="utf-8")
         assert "old content" not in content
         assert "test-pipe" in content
+
+
+class TestYamlSerializerNoneDataType:
+    """Round-trip with DataType.NONE (T-009)."""
+
+    def test_dump_pipeline_with_none_input_type(self, tmp_path: Path) -> None:
+        """A source block with input_type=NONE serializes correctly."""
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        consumer = make_block("od", DataType.RAW, DataType.RAW_OD)
+        pipeline = Pipeline(
+            name="test-none", description="T-009", steps=[source, consumer]
+        )
+        target = tmp_path / "none_test.yml"
+        dump_pipeline(pipeline, target)
+
+        content = target.read_text(encoding="utf-8")
+        assert "load_snirf" in content
+        assert "schema_version" in content
+
+    def test_round_trip_preserves_none_block(self, tmp_path: Path) -> None:
+        """Dump then load pipeline with NONE input_type block."""
+        import yaml
+
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        pipeline = Pipeline(
+            name="none-rt", description="", steps=[source]
+        )
+        target = tmp_path / "none_rt.yml"
+        dump_pipeline(pipeline, target)
+
+        raw = yaml.safe_load(target.read_text(encoding="utf-8"))
+        assert raw["steps"][0]["block_id"] == "load_snirf"
