@@ -96,9 +96,10 @@ class JSONDisk(diskcache.Disk):  # type: ignore[misc]
         read: bool,
         key: Any = diskcache.UNKNOWN,
     ) -> tuple[int, int, str | None, bytes]:
-        """Store value as JSON bytes in the database (mode=2 = raw bytes)."""
-        data = _serialize_value(value)
-        return 2, len(data), None, data
+        """Serialize value to JSON bytes then delegate storage to base Disk."""
+        if not read:
+            value = _serialize_value(value)
+        return super().store(value, read, key=key)  # type: ignore[no-any-return]
 
     def fetch(  # type: ignore[override]
         self,
@@ -107,16 +108,11 @@ class JSONDisk(diskcache.Disk):  # type: ignore[misc]
         value: Any,
         read: bool,
     ) -> Any:
-        """Fetch and deserialize a cached value from JSON bytes."""
-        if mode == 2:
-            if isinstance(value, memoryview):
-                raw = bytes(value)
-            elif isinstance(value, bytes):
-                raw = value
-            else:
-                raw = bytes(value)
-            return _deserialize_value(raw)
-        return super().fetch(mode, filename, value, read)
+        """Delegate fetch to base Disk then deserialize JSON bytes."""
+        data = super().fetch(mode, filename, value, read)
+        if not read:
+            data = _deserialize_value(data)
+        return data
 
 # ---------------------------------------------------------------------------
 # Hash utility
