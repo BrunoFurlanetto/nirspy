@@ -12,7 +12,7 @@ class TestDataTypeEnum:
 
     def test_all_expected_members_exist(self) -> None:
         names = {m.name for m in DataType}
-        expected = {"RAW", "RAW_OD", "RAW_HAEMO", "EPOCHS", "EVOKED", "DATAFRAME", "ANY"}
+        expected = {"NONE", "RAW", "RAW_OD", "RAW_HAEMO", "EPOCHS", "EVOKED", "DATAFRAME", "ANY"}
         assert names == expected
 
     def test_values_are_lowercase_strings(self) -> None:
@@ -43,9 +43,18 @@ class TestDataTypeEnum:
         """str(DataType.RAW) must include 'raw'."""
         assert "raw" in str(DataType.RAW).lower()
 
+
+    def test_none_member_exists(self) -> None:
+        assert DataType.NONE.value == "none"
+
+    def test_none_is_not_any(self) -> None:
+        """NONE and ANY are semantically distinct."""
+        assert DataType.NONE is not DataType.ANY
+        assert DataType.NONE != DataType.ANY
     @pytest.mark.parametrize(
         "member,expected_value",
         [
+            (DataType.NONE, "none"),
             (DataType.RAW, "raw"),
             (DataType.RAW_OD, "raw_od"),
             (DataType.RAW_HAEMO, "raw_haemo"),

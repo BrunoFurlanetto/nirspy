@@ -280,3 +280,61 @@ class TestLayoutStructure:
     def test_app_has_callbacks(self) -> None:
         from nirspy.gui.app import create_app
         assert create_app().callback_map is not None
+
+
+class TestSourceBlockIndicator:
+    """GUI indicator tests for DataType.NONE source blocks (T-009)."""
+
+    def test_source_at_pos0_no_red_dot(self) -> None:
+        """Source block at position 0 should NOT show a red indicator."""
+        result = render_block_card(
+            block_id="load_snirf", instance_id="test-id",
+            display_name="Load SNIRF", input_type="none",
+            output_type="raw", enabled=True, selected=False,
+            is_first=True, is_last=False,
+        )
+        html_str = str(result)
+        assert "#dc3545" not in html_str
+
+    def test_source_not_at_pos0_red_dot(self) -> None:
+        """Source block NOT at position 0 should show a red indicator."""
+        result = render_block_card(
+            block_id="load_snirf", instance_id="test-id",
+            display_name="Load SNIRF", input_type="none",
+            output_type="raw", enabled=True, selected=False,
+            is_first=False, is_last=True, prev_output_type="raw_od",
+        )
+        html_str = str(result)
+        assert "#dc3545" in html_str
+        assert "Source block must be first" in html_str
+
+    def test_source_at_pos0_with_next_block_compatible(self) -> None:
+        """Pipeline: [LoadSnirf, OD] — no red dots anywhere."""
+        state = [_make_entry("load_snirf"), _make_entry("optical_density")]
+        result = render_pipeline_view(state, None)
+        html_str = str(result)
+        # The source at pos 0 should not produce a red dot
+        # OD after LoadSnirf: LoadSnirf outputs RAW, OD expects RAW — green
+        assert "Source block must be first" not in html_str
+
+    def test_any_block_still_shows_green(self) -> None:
+        """BandpassFilter (ANY) after a RAW block should still show green."""
+        result = render_block_card(
+            block_id="bandpass_filter", instance_id="test-id",
+            display_name="Bandpass Filter", input_type="any",
+            output_type="any", enabled=True, selected=False,
+            is_first=False, is_last=True, prev_output_type="raw",
+        )
+        assert "#28a745" in str(result)
+
+    def test_load_snirf_input_type_is_none(self) -> None:
+        """LoadSnirfBlock.SPEC.input_type must be DataType.NONE."""
+        from nirspy.blocks.load import LoadSnirfBlock
+        from nirspy.domain.data_types import DataType
+        assert LoadSnirfBlock.SPEC.input_type is DataType.NONE
+
+    def test_load_snirf_input_type_not_any(self) -> None:
+        """LoadSnirfBlock.SPEC.input_type must NOT be DataType.ANY."""
+        from nirspy.blocks.load import LoadSnirfBlock
+        from nirspy.domain.data_types import DataType
+        assert LoadSnirfBlock.SPEC.input_type is not DataType.ANY
