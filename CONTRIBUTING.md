@@ -1,24 +1,26 @@
-# Contributing to nirspy
+# Contributing to NIRSPY
 
-Obrigado pelo interesse em contribuir. Este documento descreve o fluxo mínimo pra rodar o projeto, abrir issues e enviar PRs.
+Thanks for your interest in contributing. This document describes the minimal
+flow for running the project, opening issues, and submitting pull requests.
 
-## Setup local
+## Local setup
 
-Pré-requisitos: Python 3.10+ e [`uv`](https://docs.astral.sh/uv/).
+Prerequisites: Python 3.10+. [`uv`](https://docs.astral.sh/uv/) is supported
+but not required.
 
 ```bash
 git clone https://github.com/BrunoFurlanetto/nirspy.git
 cd nirspy
-uv venv
+python -m venv .venv
 # Linux/macOS
 source .venv/bin/activate
 # Windows PowerShell
 .venv\Scripts\Activate.ps1
 
-uv pip install -e ".[dev]"
+pip install -e ".[dev]"
 ```
 
-### Rodar testes, lint, types
+### Run tests, lint, types
 
 ```bash
 pytest
@@ -26,78 +28,87 @@ ruff check .
 mypy src/nirspy
 ```
 
-### Rodar app (quando GUI existir)
+### Run the app
 
 ```bash
 nirspy serve
-# acesse http://127.0.0.1:8050
+# open http://127.0.0.1:8050
 ```
 
 ## Issues
 
-Antes de abrir issue:
+Before opening an issue:
 
-1. Confira se já não existe issue similar aberta ou fechada.
-2. Para bug: descreva passos pra reproduzir, comportamento esperado vs observado, versão do Python e do `nirspy`.
-3. Para feature: confira o [roadmap](docs/roadmap.md) — pode já estar planejada. Caso não esteja, descreva o problema antes da solução.
+1. Check that a similar issue is not already open or closed.
+2. For bugs: describe reproduction steps, expected vs observed behaviour,
+   Python version, and `nirspy` version.
+3. For features: review the [roadmap](docs/roadmap.md) — it may already be
+   planned. Otherwise describe the problem before the solution.
+
+Use the [issue templates](.github/ISSUE_TEMPLATE/) — blank issues are
+disabled.
 
 ## Branches
 
-Sempre saindo de `main`:
+Always branched off `main`:
 
 ```
-feature/T-xxx-nome-curto
-fix/T-xxx-descricao
-chore/T-xxx-descricao
-docs/T-xxx-descricao
+feature/T-xxx-short-name
+fix/T-xxx-description
+chore/T-xxx-description
+docs/T-xxx-description
 ```
 
-`main` é protegida — sem commits diretos. Toda mudança via PR.
+`main` is protected — no direct commits. All changes go through a PR.
 
 ## Commits
 
-Padrão Conventional Commits curto:
+Short Conventional Commits style:
 
 ```
-tipo(escopo): mensagem imperativa curta
+type(scope): short imperative subject
 
-Corpo opcional explicando o porquê.
+Optional body explaining the why.
 ```
 
-Tipos: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `style`.
-Escopos sugeridos: `domain`, `engine`, `blocks`, `gui`, `io`, `cli`, `ci`, `docs`.
+Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `style`.
+Suggested scopes: `domain`, `engine`, `blocks`, `gui`, `io`, `cli`, `ci`, `docs`.
 
-## Pull Requests
+## Pull requests
 
-1. Branch a partir de `main`.
-2. Lint, types e testes passando localmente.
-3. PR pra `main` com descrição clara: o que muda, por quê, como testar.
-4. CI precisa passar (ruff + mypy + pytest matrix).
-5. Aguardar revisão. Squash-merge é o padrão.
+1. Branch from `main`.
+2. Lint, types and tests pass locally.
+3. Open a PR against `main` with a clear description: what changes, why, and
+   how to test.
+4. CI must pass (ruff + mypy + pytest matrix on Python 3.10/3.11/3.12).
+5. Wait for review. Squash-merge is the default.
 
-## Arquitetura
+## Architecture
 
-Antes de criar arquivo novo, leia [`docs/architecture.md`](docs/architecture.md). Regra de ouro:
+Before creating new files, read [`docs/architecture.md`](docs/architecture.md).
+The golden rule:
 
-- `domain/` → não importa Dash, Plotly, MNE
-- `engine/` → importa `domain` + MNE/MNE-NIRS, não Dash
-- `gui/` → pode importar tudo do projeto
+- `domain/` must not import Dash, Plotly, or MNE.
+- `engine/` may import `domain` + MNE/MNE-NIRS, but not Dash.
+- `gui/` may import everything from the project.
 
-PR que viole essa regra será rejeitado.
+PRs that violate this rule will be rejected.
 
-## Testes
+## Tests
 
-- `tests/domain/` → unit puro, <100 ms
-- `tests/engine/` e `tests/blocks/` → integração com fixtures
-- `tests/io/` → round-trip golden file
-- `tests/gui/` → smoke via `pytest-dash`
+- `tests/domain/` — pure unit tests, <100 ms.
+- `tests/engine/` and `tests/blocks/` — integration with fixtures.
+- `tests/io/` — round-trip golden files.
+- `tests/gui/` — smoke tests via Dash test client.
 
-Cobertura mínima alvo no `domain/`: 80%.
+Minimum coverage target for `domain/`: 80%.
 
-## Conduta
+## Code of conduct
 
-Por participar deste projeto você concorda com o [Code of Conduct](CODE_OF_CONDUCT.md).
+By participating in this project you agree to follow the
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Licença
+## License
 
-Contribuições são aceitas sob a [licença BSD-3-Clause](LICENSE) do projeto.
+Contributions are accepted under the project's
+[BSD-3-Clause license](LICENSE).
