@@ -1,132 +1,143 @@
 # Roadmap — NIRSPY
 
-> Roadmap leve, **sem datas fixas**, em ordem de prioridade. Compromisso público é só de ordem, não de cronograma.
+> Lightweight roadmap, **no fixed dates**, ordered by priority. The public
+> commitment is on ordering, not scheduling.
 
-## v0.0 — Bootstrap (pré-código)
+## v0.0 — Bootstrap (pre-code)
 
-> Trabalho de fundação. Saída: repositório público com identidade clara, nada implementado ainda.
+> Foundation work. Output: a public repository with clear identity, nothing
+> implemented yet.
 
-- [x] Criar repositório `github.com/BrunoFurlanetto/nirspy` (público)
-- [x] Adicionar LICENSE BSD-3-Clause
-- [x] README inicial (visão, status, roadmap)
-- [x] `pyproject.toml` com metadados básicos e dependências planejadas
-- [x] Estrutura de pastas conforme [`architecture.md`](architecture.md)
-- [x] CI mínimo (GitHub Actions: ruff + mypy + pytest em PRs)
-- [ ] Verificar disponibilidade do nome `nirspy` no PyPI
-- [ ] CODE_OF_CONDUCT.md (Contributor Covenant)
-- [ ] CONTRIBUTING.md (como rodar local, abrir issues, PRs)
-- [ ] Branch protection na `main`
+- [x] Create repository `github.com/BrunoFurlanetto/nirspy` (public)
+- [x] Add LICENSE BSD-3-Clause
+- [x] Initial README (vision, status, roadmap)
+- [x] `pyproject.toml` with basic metadata and planned dependencies
+- [x] Folder structure as described in [`architecture.md`](architecture.md)
+- [x] Minimal CI (GitHub Actions: ruff + mypy + pytest on PRs)
+- [x] CODE_OF_CONDUCT.md (Contributor Covenant)
+- [x] CONTRIBUTING.md (local setup, opening issues, PRs)
+- [ ] Verify `nirspy` name availability on PyPI
+- [ ] Branch protection on `main`
 
-## v0.1 — MVP funcional
+## v0.1 — Functional MVP
 
-> Builder linear de pipeline cobrindo o caminho mínimo: **carregar SNIRF → QC → pré-processamento → HRF visual → exportar**.
+> Linear pipeline builder covering the minimal path: **load SNIRF → QC →
+> preprocessing → visual HRF → export**.
 
-**Domínio:**
-- [ ] `DataType`, `Block` (Protocol), `Pipeline` (lista linear)
-- [ ] Validação de tipos I/O entre blocos
-- [ ] Execução topológica com cache (`diskcache`)
+**Domain:**
+- [x] `DataType`, `Block` (Protocol), `Pipeline` (linear list)
+- [x] I/O type validation between blocks
+- [x] Topological execution with cache (`diskcache`)
 
 **Engine:**
-- [ ] Adapter MNE-NIRS para operações básicas
+- [x] MNE-NIRS adapter for the core operations
 
-**Blocos prioritários:**
-- [ ] `LoadSnirf` — carrega arquivo SNIRF
-- [ ] `OpticalDensity` — Intensity → OD
-- [ ] `BeerLambert` — OD → HbO/HbR
-- [ ] `BandpassFilter` — IIR padrão
-- [ ] `ScalpCouplingIndex` — QC métrica
-- [ ] `PrunChannels` — remove canais ruins
-- [ ] `BlockAverage` — HRF por evento
+**Priority blocks:**
+- [x] `LoadSnirf` — loads a SNIRF file
+- [x] `OpticalDensity` — Intensity → OD
+- [x] `BeerLambert` — OD → HbO/HbR
+- [x] `BandpassFilter` — IIR with configurable cutoffs
+- [x] `ScalpCouplingIndex` — QC metric
+- [x] `PruneChannels` — removes bad channels
+- [x] `BlockAverage` — HRF per event
 
 **GUI:**
-- [ ] Layout principal com sidebar de catálogo + área de pipeline
-- [ ] Lista vertical reordenável de blocos (drag-and-drop)
-- [ ] Card de bloco com painel de parâmetros expansível
-- [ ] Indicador visual de tipos I/O incompatíveis
-- [ ] Visualização de probe (sources/detectors no escalpo)
-- [ ] Painel de QC (SCI/PSP/SNR por canal)
-- [ ] Plot de HRF médio por condição
+- [x] Main layout with catalog sidebar + pipeline area (5A)
+- [ ] Reorderable vertical block list (drag-and-drop) — 5B
+- [ ] Block card with expandable parameter panel — 5B
+- [ ] Inline indicator for incompatible I/O types — 5B
+- [ ] Probe visualization (sources/detectors on the scalp) — 5C
+- [ ] QC panel (SCI/PSP/SNR per channel) — 5C
+- [ ] Mean HRF plot per condition — 5C
 
 **IO:**
-- [ ] Salvar pipeline como YAML
-- [ ] Carregar pipeline de YAML
+- [x] Save pipeline as YAML
+- [x] Load pipeline from YAML
+- [x] `.nirs ↔ .snirf` converter
 
 **CLI:**
-- [ ] `nirspy serve` — sobe Dash em `127.0.0.1:8050`
-- [ ] `nirspy --version`
+- [x] `nirspy serve` — runs Dash on `127.0.0.1:8050`
+- [x] `nirspy run pipeline.yml --input X --output Y`
+- [x] `nirspy --version`
 
-**Distribuição:**
-- [ ] Publicar no PyPI: `pip install nirspy`
+**Distribution:**
+- [ ] Publish on PyPI: `pip install nirspy`
 - [ ] Tag `v0.1.0`
-- [ ] Release notes no GitHub
+- [ ] GitHub release notes
 
-## v0.2 — Robustez e Best Practices
+## v0.2 — Robustness and Best Practices
 
-> Foco: tornar robusto e bem testado o que já existe. Sem features novas grandes.
+> Focus: harden what already exists. No big new features.
 
-- [ ] Motion correction completa: TDDR, Spline, Wavelet (3 blocos)
-- [ ] Templates de pipeline iniciais (YAML em `examples/`):
+- [ ] Full motion correction: TDDR, Spline, Wavelet (3 blocks)
+- [ ] Starter pipeline templates (YAML in `examples/`):
     - "Best Practices Block Design"
     - "Resting State Connectivity (preview)"
     - "Motion Heavy Recording"
-- [ ] Tutorial guiado dentro da GUI (primeiros 5 passos)
-- [ ] Cobertura de testes ≥80% no domínio
-- [ ] Documentação `mkdocs-material` no GitHub Pages
-- [ ] Mensagens de erro humanizadas (sem stack trace para o usuário final)
+- [ ] In-GUI guided tutorial (first 5 steps)
+- [ ] Test coverage ≥80% on the domain layer
+- [ ] `mkdocs-material` documentation on GitHub Pages
+- [ ] Human-friendly error messages (no stack trace for end users)
 
-## v0.3 — Análise estatística
+## v0.3 — Statistical analysis
 
-- [ ] Bloco `GLM` com short-channel regression
-- [ ] Bloco `EpochsExtraction` com rejeição automática
-- [ ] Plot de t-test por canal e ROI
-- [ ] Exportação de resultados em CSV/Parquet
-- [ ] Relatório HTML automático
+- [ ] `GLM` block with short-channel regression
+- [ ] `EpochsExtraction` block with automatic rejection
+- [ ] Per-channel and ROI t-test plot
+- [ ] Export results as CSV/Parquet
+- [ ] Automatic HTML report
 
-## v0.4 — Batch e CLI estendida
+## v0.4 — Batch and extended CLI
 
 - [ ] `nirspy run pipeline.yml --input data/*.snirf --output results/`
-- [ ] Processamento em paralelo (multiprocessing)
-- [ ] Relatório de QC consolidado para múltiplos sujeitos
-- [ ] Integração com BIDS (Brain Imaging Data Structure)
+- [ ] Parallel processing (multiprocessing)
+- [ ] Consolidated QC report across multiple subjects
+- [ ] BIDS (Brain Imaging Data Structure) integration
 
-## v1.0 — Builder de grafo
+## v1.0 — Graph builder
 
-> Cumpre a promessa do Caminho C (ADR-003): substituto direto do Homer3 em Python.
+> Delivers on the promise of Path C (ADR-003): a direct Python replacement
+> for Homer3.
 
-- [ ] Migrar `Pipeline.blocks` (lista) para `Pipeline.nodes + edges` (DAG)
-- [ ] Componente `dash-cytoscape` substitui lista vertical
-- [ ] Validação de ciclos no grafo
-- [ ] Suporte a ramificações (paralelo, condicional)
-- [ ] Migração automática de pipelines YAML v0.x para formato v1.0
-- [ ] Documentação migrada e versionada
+- [ ] Migrate `Pipeline.blocks` (list) to `Pipeline.nodes + edges` (DAG)
+- [ ] `dash-cytoscape` component replaces the vertical list
+- [ ] Cycle validation in the graph
+- [ ] Support for branching (parallel, conditional)
+- [ ] Automatic migration of YAML pipelines from v0.x to v1.0
+- [ ] Versioned documentation
 
-## v2.0+ — Visão de longo prazo (sem compromisso)
+## v2.0+ — Long-term vision (no commitment)
 
-> Ideias especulativas, sem garantia de implementação. Lista aberta a contribuições.
+> Speculative ideas, no guarantee of implementation. Open to contributions.
 
-- Adapter para Cedalion como engine alternativo
-- Plugin system: blocos custom via entry points
-- Suporte a hyperscanning (dois sujeitos em paralelo)
-- DOT (Diffuse Optical Tomography) básico
-- Integração com EEG (multimodal)
-- App desktop empacotado (PyInstaller ou Tauri)
-- i18n da UI — começando com português
+- Cedalion adapter as an alternative engine
+- Plugin system: custom blocks via entry points
+- Hyperscanning support (two subjects in parallel)
+- Basic DOT (Diffuse Optical Tomography)
+- EEG integration (multimodal)
+- Packaged desktop app (PyInstaller or Tauri)
+- UI i18n — starting with Portuguese
 
-## Princípios para evolução
+## Evolution principles
 
-1. **Não inflar o escopo do MVP.** Cada feature adicionada antes de v0.1 atrasa o lançamento.
-2. **Não quebrar pipelines salvas.** YAML v0.1 deve funcionar em v0.2, v0.3 etc. Quebra só em v1.0 com tooling de migração.
-3. **Best Practices por padrão.** Templates e parâmetros padrões refletem consenso científico atual (Yücel et al., 2021).
-4. **Comunicar incertezas.** Se um algoritmo tem trade-offs, a UI explica — não esconde.
+1. **Do not inflate MVP scope.** Every feature added before v0.1 delays
+   release.
+2. **Do not break saved pipelines.** YAML v0.1 must keep working in v0.2,
+   v0.3, etc. Breaking changes only in v1.0 with migration tooling.
+3. **Best practices by default.** Templates and default parameters reflect
+   current scientific consensus (Yücel et al., 2021).
+4. **Communicate uncertainty.** If an algorithm has trade-offs, the UI
+   explains them rather than hiding them.
 
-## Métricas de progresso
+## Progress metrics
 
-| Sinal              | O que significa                                   |
-| ------------------ | ------------------------------------------------- |
-| Stars no GitHub    | Interesse passivo da comunidade                   |
-| Issues abertas     | Engajamento ativo (positivo, mesmo se reclamação) |
-| PRs externos       | Comunidade dispondo a contribuir                  |
-| Downloads PyPI     | Adoção real                                       |
-| Citações           | Adoção acadêmica formal                           |
+| Signal           | What it means                                       |
+| ---------------- | --------------------------------------------------- |
+| GitHub stars     | Passive community interest                          |
+| Open issues      | Active engagement (positive, even when complaints)  |
+| External PRs     | Community willing to contribute                     |
+| PyPI downloads   | Real adoption                                       |
+| Citations        | Formal academic adoption                            |
 
-> Métrica que **não** importa no início: número de features. Profundidade > superfície.
+> The metric that does **not** matter early on: feature count. Depth over
+> surface.

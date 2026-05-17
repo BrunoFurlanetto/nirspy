@@ -1,15 +1,16 @@
 # Code of Conduct
 
-Este projeto adota o **[Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)** como código de conduta.
+This project adopts the **[Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)**
+as its code of conduct.
 
-Texto completo: https://www.contributor-covenant.org/version/2/1/code_of_conduct/
+Full text: https://www.contributor-covenant.org/version/2/1/code_of_conduct/
 
-Traduções oficiais: https://www.contributor-covenant.org/translations/
+Official translations: https://www.contributor-covenant.org/translations/
 
-## Aplicação
+## Enforcement
 
-Comportamentos que violem o código podem ser reportados ao mantenedor:
+Conduct that violates the code may be reported to the maintainer:
 
-- E-mail: bruno.furlanetto@hotmail.com
+- Email: bruno.furlanetto@hotmail.com
 
-Reports são tratados com confidencialidade. Resposta esperada em até 7 dias.
+Reports are handled confidentially. Expected response within 7 days.

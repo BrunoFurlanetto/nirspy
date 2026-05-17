@@ -1,42 +1,46 @@
-# Arquitetura — NIRSPY
+# Architecture — NIRSPY
 
-> Fonte de verdade arquitetural do projeto. Implementação respeita as três camadas e a regra de dependências unidirecionais.
+> The architectural source of truth for the project. The implementation
+> respects the three layers and the one-directional dependency rule.
 
-## Visão em 3 camadas
+## Three-layer view
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  GUI (gui/)                                                 │
 │  Dash + Plotly + dash-bootstrap-components                  │
 │  ──────────────────────────────────────────────────────     │
-│  Componentes, callbacks, layouts, drag-and-drop visual      │
-│  Conhece: domain, engine                                    │
+│  Components, callbacks, layouts, visual drag-and-drop       │
+│  Knows about: domain, engine                                │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Engine (engine/)                                           │
-│  Adapter para MNE-NIRS                                      │
+│  MNE-NIRS adapter                                           │
 │  ──────────────────────────────────────────────────────     │
-│  Implementa interfaces declaradas em domain                 │
-│  Conhece: domain, MNE-NIRS, MNE-Python                      │
+│  Implements the interfaces declared in domain               │
+│  Knows about: domain, MNE-NIRS, MNE-Python                  │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Domain (domain/)                                           │
-│  Pipeline, Block, DataType, validação, execução abstrata    │
+│  Pipeline, Block, DataType, validation, abstract execution  │
 │  ──────────────────────────────────────────────────────     │
-│  Sem dependências de UI ou de engine                        │
-│  Conhece: nada além de stdlib + tipagem                     │
+│  No UI or engine dependencies                               │
+│  Knows about: nothing beyond stdlib + typing                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Regra de ouro das dependências:** seta aponta para baixo. `gui` importa `engine` e `domain`. `engine` importa `domain`. `domain` não importa nada do projeto.
+**Golden rule of dependencies:** the arrow points downward. `gui` imports
+`engine` and `domain`. `engine` imports `domain`. `domain` imports nothing
+from the project.
 
-Esse desenho permite trocar GUI (Reflex, PyQt) ou adicionar engine alternativo (Cedalion) sem reescrever o core. Justificativa em ADR-005.
+This shape lets us swap the GUI (Reflex, PyQt) or add an alternative engine
+(Cedalion) without rewriting the core. The rationale lives in ADR-005.
 
-## Estrutura de pastas
+## Folder layout
 
 ```
 nirspy/
@@ -57,27 +61,27 @@ nirspy/
 ├── src/
 │   └── nirspy/
 │       ├── __init__.py
-│       ├── domain/                  # camada 1 — pura
+│       ├── domain/                  # layer 1 — pure
 │       │   ├── data_types.py        # Enum: Intensity, OpticalDensity, Hemoglobin, ...
 │       │   ├── block.py             # Protocol Block, BlockSpec, BlockResult
-│       │   ├── pipeline.py          # Pipeline (lista hoje, DAG amanhã)
-│       │   ├── validation.py        # checagem de tipos I/O entre blocos
-│       │   └── execution.py         # ordem topológica, cache de resultados
-│       ├── engine/                  # camada 2 — adapter MNE-NIRS
+│       │   ├── pipeline.py          # Pipeline (list today, DAG tomorrow)
+│       │   ├── validation.py        # I/O type checks between blocks
+│       │   └── execution.py         # topological order, result cache
+│       ├── engine/                  # layer 2 — MNE-NIRS adapter
 │       │   ├── mne_adapter.py
 │       │   └── exceptions.py
-│       ├── blocks/                  # blocos concretos
+│       ├── blocks/                  # concrete blocks
 │       │   ├── load.py              # LoadSnirfBlock, LoadNirsBlock
 │       │   ├── preprocessing.py     # OpticalDensity, BeerLambert, Bandpass
 │       │   ├── motion.py            # TDDR, Spline, Wavelet
 │       │   ├── quality.py           # SCI, PSP, ChannelPruning
 │       │   ├── analysis.py          # BlockAverage, GLM
 │       │   └── export.py            # ExportCSV, ExportSnirf, ExportReport
-│       ├── io/                      # serialização de pipelines
+│       ├── io/                      # pipeline serialization
 │       │   ├── yaml_serializer.py
 │       │   └── json_serializer.py
-│       ├── gui/                     # camada 3 — Dash app
-│       │   ├── app.py               # cria app Dash, registra callbacks
+│       ├── gui/                     # layer 3 — Dash app
+│       │   ├── app.py               # creates Dash app, registers callbacks
 │       │   ├── components/
 │       │   │   ├── pipeline_view.py
 │       │   │   ├── block_card.py
@@ -90,20 +94,20 @@ nirspy/
 │       └── cli/
 │           └── main.py              # entry point: nirspy serve / nirspy run
 ├── tests/
-│   ├── domain/                      # testes da camada pura — rápidos
-│   ├── engine/                      # testes do adapter — fixtures de Raw
-│   ├── blocks/                      # testes de cada bloco
+│   ├── domain/                      # pure layer tests — fast
+│   ├── engine/                      # adapter tests — Raw fixtures
+│   ├── blocks/                      # per-block tests
 │   ├── io/
-│   └── gui/                         # smoke tests da GUI
+│   └── gui/                         # GUI smoke tests
 └── examples/
-    ├── pipelines/                   # YAML de pipelines de exemplo
+    ├── pipelines/                   # example pipeline YAMLs
     │   ├── best-practices-block-design.yml
     │   ├── resting-state.yml
     │   └── motion-heavy.yml
-    └── data/                        # dados de exemplo (SNIRF públicos)
+    └── data/                        # sample data (public SNIRF)
 ```
 
-## Modelos da camada de domínio
+## Domain layer models
 
 ### `DataType`
 
@@ -118,7 +122,8 @@ class DataType(Enum):
     GLM_RESULT = "glm"                # beta + statistics
 ```
 
-Cada bloco declara `inputs: list[DataType]` e `outputs: list[DataType]`. Validação garante compatibilidade antes de executar.
+Each block declares `inputs: list[DataType]` and `outputs: list[DataType]`.
+Validation guarantees compatibility before execution.
 
 ### `Block` (Protocol)
 
@@ -126,17 +131,18 @@ Cada bloco declara `inputs: list[DataType]` e `outputs: list[DataType]`. Valida�
 from typing import Protocol, Any
 
 class Block(Protocol):
-    id: str                           # identifier único na pipeline
+    id: str                           # unique identifier within the pipeline
     name: str                         # display name
     inputs: list[DataType]
     outputs: list[DataType]
-    params: dict[str, Any]            # parâmetros editáveis na UI
+    params: dict[str, Any]            # UI-editable parameters
 
     def validate_params(self) -> list[str]: ...
     def execute(self, data: Any, context: ExecutionContext) -> Any: ...
 ```
 
-`data` é tipado em runtime pelo `engine` (tipicamente `mne.io.Raw`). A camada `domain` trata como `Any` para não importar MNE.
+`data` is typed at runtime by the `engine` (typically `mne.io.Raw`). The
+`domain` layer treats it as `Any` so it does not need to import MNE.
 
 ### `Pipeline`
 
@@ -146,10 +152,10 @@ from dataclasses import dataclass, field
 @dataclass
 class Pipeline:
     name: str
-    blocks: list[Block] = field(default_factory=list)  # v0.1 lista linear
+    blocks: list[Block] = field(default_factory=list)  # v0.1 linear list
 
     def validate(self) -> list[ValidationError]:
-        """Tipo de saída do bloco N deve ser aceito pela entrada do bloco N+1."""
+        """Block N's output type must be accepted by block N+1's input."""
         ...
 
     def to_dict(self) -> dict: ...
@@ -158,72 +164,82 @@ class Pipeline:
     def from_dict(cls, data: dict) -> "Pipeline": ...
 ```
 
-No v1.0, `blocks` vira `nodes: dict[str, Block]` + `edges: list[tuple[str, str]]` para suportar grafo. Interface pública (`validate`, `to_dict`) permanece — UI muda, domínio evolui sem breaking change.
+In v1.0 `blocks` becomes `nodes: dict[str, Block]` + `edges: list[tuple[str, str]]`
+to support a graph. The public interface (`validate`, `to_dict`) is
+preserved — the UI changes, the domain evolves without a breaking change.
 
-## Fluxo de execução
+## Execution flow
 
 ```
-Usuário arrasta blocos na UI
+User drags blocks in the UI
         │
         ▼
-GUI atualiza Pipeline (objeto domain) via callback
+GUI updates Pipeline (domain object) via callback
         │
         ▼
-Pipeline.validate() — checagem de tipos I/O entre blocos consecutivos
+Pipeline.validate() — I/O type checks between consecutive blocks
         │
-        ├── Erro? → GUI mostra inline em vermelho, bloqueia execução
+        ├── Error? → GUI shows inline red message, blocks execution
         │
         ▼ OK
-Usuário clica "Run pipeline"
+User clicks "Run pipeline"
         │
         ▼
-Engine cria ExecutionContext (cache, logger)
+Engine creates ExecutionContext (cache, logger)
         │
         ▼
-Para cada bloco em ordem:
-        block.execute(data_anterior, context)
-        cache.store(block.id, resultado)
+For each block in order:
+        block.execute(previous_data, context)
+        cache.store(block.id, result)
         │
         ▼
-GUI consome resultados do cache para renderizar (probe viewer, HRF, QC dashboard)
+GUI consumes results from the cache to render (probe viewer, HRF, QC dashboard)
 ```
 
-**Cache de resultados:** `diskcache` indexado por hash de `(block_id, params, hash_dos_inputs)`. Mudar parâmetro de um bloco invalida cache desse bloco e dos posteriores, mantém cache dos anteriores. Permite iteração rápida sem recomputar tudo.
+**Result cache:** `diskcache` indexed by hash of `(block_id, params, hash_of_inputs)`.
+Changing a block's parameter invalidates that block's cache and every
+downstream block, while keeping upstream caches intact. This enables fast
+iteration without recomputing everything.
 
-## Estratégia de testes
+## Test strategy
 
-| Camada       | Tipo                    | Velocidade | O que testa                                      |
-| ------------ | ----------------------- | ---------- | ------------------------------------------------ |
-| `domain/`    | Unit puro               | <100ms     | Validação, serialização, ordem de execução       |
-| `engine/`    | Integração com fixture  | ~segundos  | Adapter retorna `Raw` correto para cada op       |
-| `blocks/`    | Integração              | ~segundos  | Cada bloco produz output esperado em SNIRF teste |
-| `io/`        | Unit + golden file      | <100ms     | YAML round-trip preserva pipeline                |
-| `gui/`       | Smoke (`pytest-dash`)   | minutos    | App sobe, callback principal não crasha          |
+| Layer        | Type                          | Speed       | What it tests                                       |
+| ------------ | ----------------------------- | ----------- | --------------------------------------------------- |
+| `domain/`    | Pure unit                     | <100 ms     | Validation, serialization, execution order          |
+| `engine/`    | Integration with fixture      | ~seconds    | Adapter returns the correct `Raw` for each op       |
+| `blocks/`    | Integration                   | ~seconds    | Each block produces the expected output on SNIRF    |
+| `io/`        | Unit + golden file            | <100 ms     | YAML round-trip preserves the pipeline              |
+| `gui/`       | Smoke (Dash test client)      | seconds     | App boots, main callback does not crash             |
 
-Dados de teste: SNIRF públicos do MNE-NIRS sample dataset (BSD-3, redistribuíveis).
+Test data: public SNIRF files from the MNE-NIRS sample dataset (BSD-3,
+redistributable).
 
-## Packaging e distribuição
+## Packaging and distribution
 
-| Item                  | Decisão                                            |
+| Item                  | Decision                                           |
 | --------------------- | -------------------------------------------------- |
 | Build backend         | `hatchling`                                        |
-| Versionamento         | SemVer (`0.1.0`, `0.2.0`, `1.0.0`)                 |
-| Publicação            | PyPI via `uv publish` em GitHub Actions            |
-| Trigger de release    | Tag `v*.*.*` no Git                                |
-| Documentação          | `mkdocs-material` em GitHub Pages                  |
+| Versioning            | SemVer (`0.1.0`, `0.2.0`, `1.0.0`)                 |
+| Publication           | PyPI via `uv publish` in GitHub Actions            |
+| Release trigger       | Git tag `v*.*.*`                                   |
+| Documentation         | `mkdocs-material` on GitHub Pages                  |
 | CI                    | GitHub Actions: ruff + mypy + pytest               |
-| Dependências mínimas  | Python ≥3.10, mne-nirs ≥0.7, dash ≥2.x             |
+| Minimum dependencies  | Python ≥3.10, mne-nirs ≥0.7, dash ≥2.x             |
 
-## Pontos de extensão futura (v2.0+)
+## Future extension points (v2.0+)
 
-- **Adapter para Cedalion:** nova classe em `engine/cedalion_adapter.py`, configuração em `config.engine`
-- **Builder de grafo:** trocar `gui/components/pipeline_view.py` por `dash-cytoscape`, `Pipeline.blocks` evolui para DAG
-- **Pipelines em múltiplos sujeitos:** novo módulo `batch/` consumindo as mesmas pipelines YAML
-- **Plugin system:** blocos custom carregáveis via entry points do `pyproject.toml`
+- **Cedalion adapter:** new class in `engine/cedalion_adapter.py`,
+  configuration in `config.engine`.
+- **Graph builder:** swap `gui/components/pipeline_view.py` for
+  `dash-cytoscape`; `Pipeline.blocks` evolves to a DAG.
+- **Multi-subject pipelines:** new `batch/` module consuming the same YAML
+  pipelines.
+- **Plugin system:** custom blocks loaded via entry points in
+  `pyproject.toml`.
 
-## ADRs relacionados
+## Related ADRs
 
-- ADR-001 — Engine MNE-NIRS, não Cedalion
-- ADR-002 — GUI Dash, não PyQt nem Streamlit
-- ADR-003 — Filosofia builder modular linear → grafo (Caminho C)
-- ADR-005 — Camada de domínio UI-agnóstica
+- ADR-001 — Engine is MNE-NIRS, not Cedalion
+- ADR-002 — GUI in Dash, not PyQt or Streamlit
+- ADR-003 — Builder philosophy: linear → graph (Path C)
+- ADR-005 — UI-agnostic domain layer
