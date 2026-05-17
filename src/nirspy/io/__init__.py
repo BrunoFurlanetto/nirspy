@@ -15,12 +15,16 @@ from nirspy.io.converters import (
     nirs_to_snirf,
     snirf_to_nirs,
 )
+from nirspy.io.pipeline_runner import RunResult, run_pipeline
 from nirspy.io.yaml_serializer import dump_pipeline, load_pipeline
 
 __all__ = [
     # pipeline serialisation
     "dump_pipeline",
     "load_pipeline",
+    # pipeline runner
+    "RunResult",
+    "run_pipeline",
     # converters
     "nirs_to_snirf",
     "snirf_to_nirs",
