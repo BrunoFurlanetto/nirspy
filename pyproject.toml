@@ -87,6 +87,12 @@ ignore_missing_imports = true
 module = ["h5py", "h5py.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
 
+
+[[tool.mypy.overrides]]
+# Dash and dash-bootstrap-components do not ship py.typed or stubs.
+module = ["dash", "dash.*", "dash_bootstrap_components", "dash_bootstrap_components.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
