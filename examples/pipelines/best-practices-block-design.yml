@@ -1,0 +1,46 @@
+# Best Practices fNIRS Pipeline (Yucel et al., 2021)
+# Full end-to-end: Load -> OD -> QC -> Filter -> mBLL -> Block Average
+#
+# This pipeline implements the recommended processing chain for
+# event-related fNIRS studies.
+
+schema_version: "1"
+name: best-practices-block-design
+description: >
+  Complete fNIRS pipeline following Best Practices (Yucel et al., 2021):
+  intensity -> OD -> SCI quality check -> prune bad channels ->
+  bandpass filter -> Beer-Lambert (HbO/HbR) -> block average HRF.
+
+steps:
+  - block_id: load_snirf
+    params:
+      path: "data/sub-01_task-tapping_nirs.snirf"
+
+  - block_id: optical_density
+    params: {}
+
+  - block_id: scalp_coupling_index
+    params: {}
+
+  - block_id: prune_channels
+    params:
+      sci_threshold: 0.5
+
+  - block_id: bandpass_filter
+    params:
+      l_freq: 0.01
+      h_freq: 0.5
+      method: "iir"
+
+  - block_id: beer_lambert
+    params:
+      ppf: 6.0
+
+  - block_id: block_average
+    params:
+      tmin: -2.0
+      tmax: 18.0
+      baseline_tmin: -2.0
+      baseline_tmax: 0.0
+      reject_by_amplitude: true
+      amplitude_threshold: 0.00008

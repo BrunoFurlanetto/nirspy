@@ -30,15 +30,17 @@ dependencies = [
     "diskcache>=5.6",
     "pyyaml>=6.0",
     "click>=8.1",
+    "scipy>=1.10",
+    "h5py>=3.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-    "pytest-dash>=2.1",
     "ruff>=0.5",
     "mypy>=1.10",
     "hatchling>=1.25",
+    "types-PyYAML>=6.0",
 ]
 docs = [
     "mkdocs-material>=9.5",
@@ -67,6 +69,28 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 python_version = "3.10"
 strict = true
 packages = ["nirspy"]
+
+[[tool.mypy.overrides]]
+# mne, mne_nirs and diskcache do not ship py.typed or stubs; suppress import-untyped.
+module = ["mne", "mne.*", "mne_nirs", "mne_nirs.*", "diskcache", "diskcache.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# yaml (pyyaml) stubs are in types-PyYAML; listed as dev dependency.
+# Suppress until stubs are installed in CI.
+module = ["yaml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# h5py and scipy do not ship py.typed or complete stubs; suppress import-untyped.
+module = ["h5py", "h5py.*", "scipy", "scipy.*"]
+ignore_missing_imports = true
+
+
+[[tool.mypy.overrides]]
+# Dash and dash-bootstrap-components do not ship py.typed or stubs.
+module = ["dash", "dash.*", "dash_bootstrap_components", "dash_bootstrap_components.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
