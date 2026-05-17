@@ -1,4 +1,4 @@
-"""Parameter editor component — auto-generated form from dataclass fields.
+"""Parameter editor component -- auto-generated form from dataclass fields.
 
 Uses :func:`dataclasses.fields` to introspect the ``params_class`` declared
 on a block's :class:`~nirspy.domain.block.BlockSpec` and renders a
@@ -6,6 +6,10 @@ Bootstrap form with appropriate input widgets per field type.
 
 No per-block form is hardcoded; everything is derived from the dataclass
 definition (ADR-007).
+
+Note: because many block modules use ``from __future__ import annotations``,
+``field.type`` is often a *string* rather than an actual type object.  The
+helper :func:`_resolve_field_type` normalises both representations.
 """
 
 from __future__ import annotations
@@ -17,16 +21,52 @@ from typing import Any, Union, get_args, get_origin
 import dash_bootstrap_components as dbc
 from dash import html
 
+# Mapping from stringified annotations to concrete types
+_STR_TYPE_MAP: dict[str, type[Any]] = {
+    "bool": bool,
+    "int": int,
+    "float": float,
+    "str": str,
+}
 
-def _is_optional(tp: Any) -> tuple[bool, Any]:
-    """Check if *tp* is ``Optional[X]`` and return ``(True, X)`` or ``(False, tp)``."""
+
+def _resolve_field_type(tp: Any) -> tuple[bool, type[Any]]:
+    """Return ``(is_optional, resolved_type)`` for a dataclass field type.
+
+    Handles both real type objects and stringified annotations
+    (caused by ``from __future__ import annotations``).
+    """
+    # --- string annotations ---
+    if isinstance(tp, str):
+        clean = tp.replace(" ", "")
+        is_opt = False
+        # "float|None", "None|float", "list[str]|None", etc.
+        if "|" in clean:
+            parts = [p for p in clean.split("|") if p.lower() != "none"]
+            is_opt = len(parts) < len(clean.split("|"))
+            if len(parts) == 1:
+                return is_opt, _STR_TYPE_MAP.get(parts[0], str)
+            return is_opt, str
+        return False, _STR_TYPE_MAP.get(clean, str)
+
+    # --- real type objects ---
     origin = get_origin(tp)
     if origin is Union or origin is types.UnionType:
         args = get_args(tp)
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1 and len(args) == 2:
             return True, non_none[0]
-    return False, tp
+
+    if tp is bool:
+        return False, bool
+    if tp is int:
+        return False, int
+    if tp is float:
+        return False, float
+    if tp is str:
+        return False, str
+
+    return False, str
 
 
 def _field_to_input(
@@ -36,13 +76,12 @@ def _field_to_input(
 ) -> dbc.Row:
     """Convert a single dataclass field to a form row."""
     field_name = field.name
-    field_type = field.type
     input_id = {"type": "param-input", "instance_id": instance_id, "field": field_name}
 
-    optional, inner_type = _is_optional(field_type)
+    _optional, resolved = _resolve_field_type(field.type)
 
     # --- bool ---------------------------------------------------------------
-    if inner_type is bool or field_type is bool:
+    if resolved is bool:
         control: Any = dbc.Checkbox(
             id=input_id,
             value=bool(value) if value is not None else False,
@@ -57,7 +96,7 @@ def _field_to_input(
         )
 
     # --- int ----------------------------------------------------------------
-    if inner_type is int or field_type is int:
+    if resolved is int:
         ctrl = dbc.Input(
             id=input_id,
             type="number",
@@ -74,7 +113,7 @@ def _field_to_input(
         )
 
     # --- float (including Optional[float]) ----------------------------------
-    if inner_type is float or field_type is float:
+    if resolved is float:
         ctrl = dbc.Input(
             id=input_id,
             type="number",
@@ -90,29 +129,12 @@ def _field_to_input(
             className="mb-2",
         )
 
-    # --- str ----------------------------------------------------------------
-    if inner_type is str or field_type is str:
-        ctrl = dbc.Input(
-            id=input_id,
-            type="text",
-            value=str(value) if value is not None else "",
-            size="sm",
-        )
-        return dbc.Row(
-            [
-                dbc.Label(field_name, width=5, className="small"),
-                dbc.Col(ctrl, width=7),
-            ],
-            className="mb-2",
-        )
-
-    # --- dict / list / complex  — show as text (JSON-ish) -------------------
+    # --- str or fallback ----------------------------------------------------
     ctrl = dbc.Input(
         id=input_id,
         type="text",
         value=str(value) if value is not None else "",
         size="sm",
-        placeholder="JSON value",
     )
     return dbc.Row(
         [
