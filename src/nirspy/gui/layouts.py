@@ -5,7 +5,8 @@ Three-panel layout:
 - Center: pipeline view (vertical list of block cards)
 - Right panel: parameter editor (auto-generated from dataclass fields)
 
-Below the builder: visualization tabs (raw data, probe, QC, HRF).
+Below the builder: visualization tabs (raw data, probe, QC, HRF)
+and a Convert tab for .nirs/.snirf file conversion.
 
 State management uses ``dcc.Store`` for pipeline state (JSON-serializable).
 """
@@ -17,6 +18,7 @@ from dash import dcc, html
 
 from nirspy.blocks import registry
 from nirspy.gui.components.block_catalog import render_block_catalog
+from nirspy.gui.components.converter_view import render_converter_tab
 from nirspy.gui.components.run_button import render_run_button
 
 
@@ -191,6 +193,11 @@ def create_layout() -> dbc.Container:
                 ),
                 label="HRF",
                 tab_id="tab-hrf",
+            ),
+            dbc.Tab(
+                render_converter_tab(),
+                label="Convert",
+                tab_id="tab-convert",
             ),
         ],
         id="viz-tabs",
