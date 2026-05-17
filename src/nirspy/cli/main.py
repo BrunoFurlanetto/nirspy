@@ -22,7 +22,10 @@ def main() -> None:
 @click.option("--debug/--no-debug", default=False)
 def serve(host: str, port: int, debug: bool) -> None:
     """Start the Dash GUI at http://HOST:PORT."""
-    raise click.ClickException("GUI not yet implemented (pre-alpha).")
+    from nirspy.gui import create_app
+
+    app = create_app(debug=debug)
+    app.run(host=host, port=port, debug=debug)
 
 
 @main.command()
