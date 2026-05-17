@@ -9,9 +9,8 @@ import pytest
 from nirspy.domain.block import Block
 from nirspy.domain.data_types import DataType
 from nirspy.domain.exceptions import ValidationError
-from nirspy.domain.pipeline import Pipeline, RegistryProtocol, _CURRENT_SCHEMA_VERSION
+from nirspy.domain.pipeline import _CURRENT_SCHEMA_VERSION, Pipeline
 from tests.conftest import make_block
-
 
 # ---------------------------------------------------------------------------
 # Fake RegistryProtocol implementation for tests

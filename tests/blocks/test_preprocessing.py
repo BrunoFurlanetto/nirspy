@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 import mne
+import pytest
 
 from nirspy.blocks.preprocessing import (
     BandpassFilterBlock,
@@ -11,7 +11,6 @@ from nirspy.blocks.preprocessing import (
     BeerLambertBlock,
     BeerLambertParams,
     OpticalDensityBlock,
-    OpticalDensityParams,
 )
 from nirspy.domain.exceptions import ValidationError
 

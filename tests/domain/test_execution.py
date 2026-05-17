@@ -21,7 +21,6 @@ from nirspy.domain.pipeline import Pipeline
 from nirspy.engine.cache_adapter import InMemoryCacheAdapter
 from tests.conftest import make_block
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

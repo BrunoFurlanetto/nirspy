@@ -8,9 +8,8 @@ import pytest
 
 from nirspy.domain.data_types import DataType
 from nirspy.domain.pipeline import Pipeline
-from nirspy.io.yaml_serializer import dump_pipeline, load_pipeline
+from nirspy.io.yaml_serializer import dump_pipeline
 from tests.conftest import make_block
-
 
 # ---------------------------------------------------------------------------
 # Helpers

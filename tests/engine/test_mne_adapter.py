@@ -118,7 +118,6 @@ class TestRawWrapper:
     def test_raw_wrapper_stores_raw_and_path(
         self, adapter: MNEAdapter, snirf_path: pathlib.Path
     ) -> None:
-        import mne
 
         raw = adapter.load_snirf(snirf_path)
         wrapper = RawWrapper(raw=raw, source_path=snirf_path)

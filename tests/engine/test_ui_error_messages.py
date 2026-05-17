@@ -9,8 +9,6 @@ Verifies that:
 
 from __future__ import annotations
 
-import pytest
-
 from nirspy.domain.exceptions import NirspyError
 from nirspy.engine.exceptions import (
     UI_ERROR_MESSAGES,

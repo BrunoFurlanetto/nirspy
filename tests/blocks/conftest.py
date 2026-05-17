@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+import mne
 import numpy as np
 import pytest
-
-import mne
 
 
 @pytest.fixture()
@@ -27,7 +26,6 @@ def raw_cw_amplitude() -> mne.io.BaseRaw:
 
     # Set source/detector positions (required for OD conversion)
     # Simple 2D montage on the scalp
-    import numpy as np
     sources = np.array([[0.0, 0.0, 0.0], [0.03, 0.0, 0.0]])
     detectors = np.array([[0.015, 0.0, 0.0]])
     # Assign source/detector/wavelength info

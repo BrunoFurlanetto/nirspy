@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-from nirspy.domain.cache import CacheProtocol
 from nirspy.engine.cache_adapter import InMemoryCacheAdapter
 
 

@@ -156,8 +156,8 @@ class TestBlockProtocol:
         class _P:
             threshold: float = 0.5
 
-        from tests.conftest import make_block as _mb
         from nirspy.domain.data_types import DataType as _DT
+        from tests.conftest import make_block as _mb
 
         block = _mb("with_params", _DT.RAW, _DT.RAW, params=_P(threshold=0.9))
         assert block.params.threshold == 0.9  # type: ignore[attr-defined]

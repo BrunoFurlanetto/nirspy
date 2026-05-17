@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import pathlib
-from typing import Any
 
 import pytest
 
@@ -13,7 +12,6 @@ from nirspy.engine.cache_adapter import (
     InMemoryCacheAdapter,
     make_cache_key,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

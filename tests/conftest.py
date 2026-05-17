@@ -16,7 +16,6 @@ from nirspy.domain.data_types import DataType
 from nirspy.domain.execution import ExecutionContext
 from nirspy.engine.cache_adapter import InMemoryCacheAdapter
 
-
 # ---------------------------------------------------------------------------
 # Fake Block implementation — used by domain tests (no MNE dependency)
 # ---------------------------------------------------------------------------
@@ -43,10 +42,7 @@ class _FakeBlockImpl:
         # For a linear pipeline: if there is one upstream result, pass its data
         # through unchanged.  For the first block (inputs={}), return None so
         # tests can verify the empty-inputs contract explicitly.
-        if inputs:
-            data = next(iter(inputs.values()))
-        else:
-            data = None
+        data = next(iter(inputs.values())) if inputs else None
         return BlockResult(data=data, block_id=self._spec.block_id)
 
 

@@ -88,7 +88,7 @@ class TestDomainExceptionHierarchy:
         assert "od_1" in str(exc)
 
     def test_validation_error_is_catchable_as_base_exception(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 - intentional: verify Exception subclass
             raise ValidationError("oops")
 
     def test_multiple_errors_are_independent_instances(self) -> None:
