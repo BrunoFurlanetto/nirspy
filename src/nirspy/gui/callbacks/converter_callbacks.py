@@ -29,15 +29,29 @@ from dash.exceptions import PreventUpdate
 
 from nirspy.domain.exceptions import ConverterError
 from nirspy.gui.components.error_display import render_error
-from nirspy.io.converters import nirs_to_snirf, snirf_to_nirs
 
 logger = logging.getLogger(__name__)
 
-# Map direction value to (expected input suffix, output suffix, converter fn)
-_DIRECTION_MAP: dict[str, tuple[str, str, Any]] = {
-    "nirs_to_snirf": (".nirs", ".snirf", nirs_to_snirf),
-    "snirf_to_nirs": (".snirf", ".nirs", snirf_to_nirs),
+# Map direction -> (expected input suffix, output suffix)
+_DIRECTION_META: dict[str, tuple[str, str]] = {
+    "nirs_to_snirf": (".nirs", ".snirf"),
+    "snirf_to_nirs": (".snirf", ".nirs"),
 }
+
+
+def _get_converter(direction: str) -> Any:
+    """Resolve the converter function for a given direction.
+
+    Imported lazily so that ``unittest.mock.patch`` on the module-level
+    names in ``nirspy.io.converters`` works correctly in tests.
+    """
+    from nirspy.io import converters
+
+    if direction == "nirs_to_snirf":
+        return converters.nirs_to_snirf
+    if direction == "snirf_to_nirs":
+        return converters.snirf_to_nirs
+    return None
 
 
 @callback(
@@ -98,20 +112,23 @@ def on_convert(
     raw_bytes = base64.b64decode(content_string)
 
     # Resolve direction config
-    dir_cfg = _DIRECTION_MAP.get(direction)
-    if dir_cfg is None:
+    meta = _DIRECTION_META.get(direction)
+    if meta is None:
         return render_error("Invalid conversion direction."), no_update
 
-    expected_suffix, output_suffix, converter_fn = dir_cfg
+    expected_suffix, output_suffix = meta
+    converter_fn = _get_converter(direction)
+    if converter_fn is None:
+        return render_error("Invalid conversion direction."), no_update
 
     # Validate file extension matches direction
     input_suffix = Path(filename).suffix.lower()
     if input_suffix != expected_suffix:
         return (
             render_error(
-                f"File '{filename}' has extension '{input_suffix}', "
-                f"but direction '{direction}' expects "
-                f"'{expected_suffix}'. "
+                f"File has extension {input_suffix!r}, "
+                f"but direction {direction!r} expects "
+                f"{expected_suffix!r}. "
                 f"Please upload a {expected_suffix} file or change "
                 f"the conversion direction."
             ),
