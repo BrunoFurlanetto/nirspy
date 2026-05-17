@@ -26,6 +26,7 @@ from dash import Input, Output, State, callback, html, no_update
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.exceptions import NirspyError
+from nirspy.gui.components.error_display import render_error
 
 # Module-level cache for MNE objects -- single-user local app.
 _VIZ_CACHE: dict[str, Any] = {}
@@ -122,9 +123,13 @@ def run_pipeline_callback(
     try:
         pipeline = _build_pipeline_from_state(pipeline_state)
     except (KeyError, NirspyError) as exc:
+        block_id = _extract_block_id(pipeline_state, exc)
+        msg = f"Failed to build pipeline: {exc}"
+        if block_id:
+            msg = f"[{block_id}] {msg}"
         return (
             no_update, 0, 100, {"display": "none"},
-            f"Failed to build pipeline: {exc}", True,
+            render_error(msg), True,
             "", False,
         )
 
@@ -152,15 +157,21 @@ def run_pipeline_callback(
             pipeline, context
         )
     except NirspyError as exc:
+        block_id = getattr(exc, "block_id", None) or ""
+        msg = f"Pipeline execution failed: {exc}"
+        if block_id:
+            msg = f"[{block_id}] {msg}"
         return (
             no_update, 0, 100, {"display": "none"},
-            f"Pipeline execution failed: {exc}", True,
+            render_error(msg), True,
             "", False,
         )
     except Exception:  # noqa: BLE001
         return (
             no_update, 0, 100, {"display": "none"},
-            "An unexpected error occurred during execution.",
+            render_error(
+                "An unexpected error occurred during execution."
+            ),
             True,
             "", False,
         )
@@ -197,6 +208,23 @@ def run_pipeline_callback(
         f"({len(results)}/{enabled_count} blocks).",
         True,
     )
+
+
+
+def _extract_block_id(
+    pipeline_state: list[dict[str, Any]] | None,
+    exc: Exception,
+) -> str:
+    """Try to extract a block_id from the exception context."""
+    block_id = getattr(exc, "block_id", None)
+    if block_id:
+        return str(block_id)
+    if pipeline_state:
+        msg = str(exc).lower()
+        for entry in pipeline_state:
+            if entry["block_id"].lower() in msg:
+                return str(entry["block_id"])
+    return ""
 
 
 def _is_raw(data: Any) -> bool:
