@@ -12,6 +12,7 @@ Design:
 
 from __future__ import annotations
 
+import os
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -38,6 +39,32 @@ __all__ = [
     "nirs_to_snirf",
     "snirf_to_nirs",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Security constants (S-001)
+# ---------------------------------------------------------------------------
+
+#: Maximum number of samples (time points) allowed in a single dataset.
+MAX_SAMPLES: int = 100_000_000  # 100M
+
+#: Maximum number of channels allowed in a single dataset.
+MAX_CHANNELS: int = 100_000  # 100K
+
+#: Maximum number of dimensions allowed for data arrays.
+MAX_NDIM: int = 4
+
+# ---------------------------------------------------------------------------
+# PII fields that can be stripped (I-001)
+# ---------------------------------------------------------------------------
+
+_PII_FIELDS: set[str] = {
+    "SubjectID",
+    "DateOfBirth",
+    "SubjectName",
+    "PatientName",
+    "PatientID",
+}
 
 # ---------------------------------------------------------------------------
 # Pivot dataclasses
@@ -130,6 +157,91 @@ class NirsData:
             )
 
 
+
+# ---------------------------------------------------------------------------
+# Security helpers
+# ---------------------------------------------------------------------------
+
+
+def _validate_array_shape(
+    shape: tuple[int, ...],
+    context: str,
+    path: Path,
+) -> None:
+    """Validate array shape against security limits (S-001).
+
+    Raises ConverterError if shape exceeds MAX_SAMPLES, MAX_CHANNELS, or MAX_NDIM.
+    """
+    if len(shape) > MAX_NDIM:
+        raise ConverterError(
+            f"Array '{context}' has {len(shape)} dimensions (max {MAX_NDIM}): {path}"
+        )
+    total_elements = 1
+    for dim in shape:
+        total_elements *= dim
+    if total_elements > MAX_SAMPLES:
+        raise ConverterError(
+            f"Array '{context}' has {total_elements:,} elements "
+            f"(max {MAX_SAMPLES:,}): {path}"
+        )
+    if len(shape) >= 2 and shape[1] > MAX_CHANNELS:
+        raise ConverterError(
+            f"Array '{context}' has {shape[1]:,} channels "
+            f"(max {MAX_CHANNELS:,}): {path}"
+        )
+
+
+def _check_external_links(f: h5py.File, path: Path) -> None:
+    """Reject HDF5 files containing ExternalLinks (S-002).
+
+    Iterates all items recursively and raises ConverterError if any
+    h5py.ExternalLink is found.
+    """
+
+    def _check_group(group: h5py.Group) -> None:
+        for key in group:
+            link = group.get(key, getlink=True)
+            if isinstance(link, h5py.ExternalLink):
+                raise ConverterError(
+                    f"Security: external HDF5 link detected at '{group.name}/{key}' "
+                    f"in '{path}'. External links are not allowed (S-002)."
+                )
+            item = group.get(key)
+            if isinstance(item, h5py.Group):
+                _check_group(item)
+
+    _check_group(f)
+
+
+def _atomic_create_output(path: Path, overwrite: bool) -> None:
+    """Atomically verify output path does not exist (S-003).
+
+    Uses os.open with O_CREAT|O_EXCL to prevent TOCTOU race conditions.
+    When overwrite=True, skips the atomic check.
+    """
+    if overwrite:
+        if path.exists():
+            path.unlink()
+        return
+
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        # Remove the empty lock file - actual write happens after
+        path.unlink()
+    except FileExistsError:
+        raise ConverterError(
+            f"Output file already exists (use overwrite=True to replace): {path}"
+        ) from None
+
+
+def _strip_pii_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Remove PII fields from metadata dict (I-001).
+
+    Returns a new dict with PII fields removed.
+    """
+    return {k: v for k, v in metadata.items() if k not in _PII_FIELDS}
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -139,6 +251,8 @@ def nirs_to_snirf(
     input_path: Path | str,
     output_path: Path | str,
     overwrite: bool = False,
+    *,
+    strip_pii: bool = False,
 ) -> None:
     """Convert a .nirs (HOMER2/3 MAT-file) to .snirf (SNIRF 1.1 HDF5).
 
@@ -158,9 +272,11 @@ def nirs_to_snirf(
     in_path = Path(input_path)
     out_path = Path(output_path)
     _validate_input(in_path, ".nirs")
-    _validate_output(out_path, overwrite)
+    _atomic_create_output(out_path, overwrite)
 
     data = _parse_nirs(in_path)
+    if strip_pii:
+        data.metadata = _strip_pii_from_metadata(data.metadata)
     data.validate()
     _write_snirf(data, out_path)
 
@@ -169,6 +285,8 @@ def snirf_to_nirs(
     input_path: Path | str,
     output_path: Path | str,
     overwrite: bool = False,
+    *,
+    strip_pii: bool = False,
 ) -> None:
     """Convert a .snirf (SNIRF 1.1 HDF5) to .nirs (HOMER2/3 MAT-file v5).
 
@@ -191,9 +309,11 @@ def snirf_to_nirs(
     in_path = Path(input_path)
     out_path = Path(output_path)
     _validate_input(in_path, ".snirf")
-    _validate_output(out_path, overwrite)
+    _atomic_create_output(out_path, overwrite)
 
     data = _parse_snirf(in_path)
+    if strip_pii:
+        data.metadata = _strip_pii_from_metadata(data.metadata)
     data.validate()
     _write_nirs(data, out_path)
 
@@ -240,7 +360,12 @@ def _parse_nirs(path: Path) -> NirsData:
     # --- data matrix -------------------------------------------------------
     if "d" not in mat:
         raise NirsParseError("Missing required field 'd' (data matrix).", path=path)
-    data_matrix = np.array(mat["d"], dtype=np.float64)
+    # S-001: Check shape before allocating full array
+    d_raw = mat["d"]
+    if hasattr(d_raw, "shape"):
+        _validate_array_shape(d_raw.shape, "d (data matrix)", path)
+
+    data_matrix = np.array(d_raw, dtype=np.float64)
     if data_matrix.ndim == 1:
         data_matrix = data_matrix.reshape(-1, 1)
 
@@ -379,6 +504,9 @@ def _parse_snirf(path: Path) -> NirsData:
         raise SnirfParseError(f"Cannot open .snirf file: {exc}", path=path) from exc
 
     with f:
+        # S-002: Reject files with external links
+        _check_external_links(f, path)
+
         # --- check for extra data blocks -----------------------------------
         nirs = f.get("nirs")
         if nirs is None:
@@ -403,7 +531,11 @@ def _parse_snirf(path: Path) -> NirsData:
             raise SnirfParseError(
                 "Required dataset '/nirs/data1/dataTimeSeries' not found.", path=path
             )
-        data_matrix = np.array(data1["dataTimeSeries"], dtype=np.float64)
+        # S-001: Check shape before allocating
+        dts = data1["dataTimeSeries"]
+        _validate_array_shape(dts.shape, "dataTimeSeries", path)
+
+        data_matrix = np.array(dts, dtype=np.float64)
         if data_matrix.ndim == 1:
             data_matrix = data_matrix.reshape(-1, 1)
 

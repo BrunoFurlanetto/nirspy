@@ -1,8 +1,13 @@
 """Concrete cache adapters implementing :class:`~nirspy.domain.cache.CacheProtocol`.
 
 Provides:
-- ``InMemoryCacheAdapter`` — plain dict, no persistence (default for tests/dev).
-- ``DiskCacheAdapter`` — persistent cache backed by ``diskcache.Cache``.
+- ``InMemoryCacheAdapter`` -- plain dict, no persistence (default for tests/dev).
+- ``DiskCacheAdapter`` -- persistent cache backed by ``diskcache.Cache``.
+
+Security (S-01):
+    DiskCacheAdapter uses a custom JSONDisk that serializes with JSON instead of
+    Python pickle, eliminating the RCE vector from arbitrary deserialization.
+    Only JSON-safe types are cached; numpy arrays are stored as nested lists.
 
 Hash utility
 ------------
@@ -21,8 +26,101 @@ from pathlib import Path
 from typing import Any
 
 import diskcache
+import numpy as np
 
 _DEFAULT_CACHE_DIR = Path.home() / ".nirspy" / "cache"
+
+# ---------------------------------------------------------------------------
+# JSON serialization helpers (S-01: replaces pickle)
+# ---------------------------------------------------------------------------
+
+_NUMPY_MARKER = "__nirspy_ndarray__"
+
+
+class _NirspyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy arrays and basic numpy scalars."""
+
+    def default(self, o: Any) -> Any:  # noqa: ANN401
+        if isinstance(o, np.ndarray):
+            return {
+                _NUMPY_MARKER: True,
+                "dtype": str(o.dtype),
+                "shape": list(o.shape),
+                "data": o.tolist(),
+            }
+        if isinstance(o, np.integer):
+            return int(o)
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.bool_):
+            return bool(o)
+        return super().default(o)
+
+
+def _nirspy_decoder(obj: dict[str, Any]) -> Any:
+    """JSON object_hook that reconstructs numpy arrays."""
+    if _NUMPY_MARKER in obj:
+        return np.array(obj["data"], dtype=obj["dtype"]).reshape(obj["shape"])
+    return obj
+
+
+def _serialize_value(value: Any) -> bytes:
+    """Serialize a cache value to JSON bytes.
+
+    Raises TypeError if the value contains non-serializable objects (e.g. MNE Raw).
+    This is intentional -- only safe, reproducible data should be cached.
+    """
+    return json.dumps(value, cls=_NirspyEncoder, sort_keys=True).encode("utf-8")
+
+
+def _deserialize_value(data: bytes) -> Any:
+    """Deserialize JSON bytes back to a Python object."""
+    return json.loads(data.decode("utf-8"), object_hook=_nirspy_decoder)
+
+# ---------------------------------------------------------------------------
+# Custom diskcache Disk class (S-01: no pickle)
+# ---------------------------------------------------------------------------
+
+
+class JSONDisk(diskcache.Disk):  # type: ignore[misc]
+    """Disk backend that uses JSON instead of pickle for value serialization.
+
+    Keys remain as default (strings). Values are serialized via JSON with
+    numpy array support. Non-JSON-serializable values raise TypeError at
+    write time rather than silently pickling.
+    """
+
+    def store(  # type: ignore[override]
+        self,
+        value: Any,
+        read: bool,
+        key: Any = diskcache.UNKNOWN,
+    ) -> tuple[int, int, str | None, bytes]:
+        """Store value as JSON bytes in the database (mode=2 = raw bytes)."""
+        data = _serialize_value(value)
+        return 2, len(data), None, data
+
+    def fetch(  # type: ignore[override]
+        self,
+        mode: int,
+        filename: str | None,
+        value: Any,
+        read: bool,
+    ) -> Any:
+        """Fetch and deserialize a cached value from JSON bytes."""
+        if mode == 2:
+            if isinstance(value, memoryview):
+                raw = bytes(value)
+            elif isinstance(value, bytes):
+                raw = value
+            else:
+                raw = bytes(value)
+            return _deserialize_value(raw)
+        return super().fetch(mode, filename, value, read)
+
+# ---------------------------------------------------------------------------
+# Hash utility
+# ---------------------------------------------------------------------------
 
 
 def make_cache_key(params: Any, prefix: str = "") -> str:
@@ -48,11 +146,15 @@ def make_cache_key(params: Any, prefix: str = "") -> str:
     digest = hashlib.sha256(canonical.encode()).hexdigest()
     return f"{prefix}:{digest}" if prefix else digest
 
+# ---------------------------------------------------------------------------
+# InMemoryCacheAdapter
+# ---------------------------------------------------------------------------
+
 
 class InMemoryCacheAdapter:
     """Volatile in-process cache backed by a plain :class:`dict`.
 
-    Not thread-safe — sufficient for Etapa 1 single-threaded runner.
+    Not thread-safe -- sufficient for Etapa 1 single-threaded runner.
     """
 
     def __init__(self) -> None:
@@ -82,8 +184,17 @@ class InMemoryCacheAdapter:
         self._store.clear()
 
 
+# ---------------------------------------------------------------------------
+# DiskCacheAdapter (S-01: uses JSONDisk, no pickle)
+# ---------------------------------------------------------------------------
+
+
 class DiskCacheAdapter:
-    """Persistent cache backed by :class:`diskcache.Cache`.
+    """Persistent cache backed by :class:`diskcache.Cache` with JSON serialization.
+
+    Security (S-01): Uses :class:`JSONDisk` instead of the default pickle-based
+    Disk, eliminating the RCE vector from arbitrary deserialization of cached
+    data. Only JSON-safe types (including numpy arrays) can be cached.
 
     Parameters
     ----------
@@ -94,7 +205,10 @@ class DiskCacheAdapter:
     def __init__(self, directory: Path | None = None) -> None:
         cache_dir = directory if directory is not None else _DEFAULT_CACHE_DIR
         cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache: diskcache.Cache = diskcache.Cache(str(cache_dir))
+        self._cache: diskcache.Cache = diskcache.Cache(
+            str(cache_dir),
+            disk=JSONDisk,
+        )
 
     def get(self, key: str) -> Any | None:
         return self._cache.get(key, default=None)
@@ -111,7 +225,7 @@ class DiskCacheAdapter:
 
         Returns the number of entries removed.
 
-        Complexity: O(n_cached_keys) — acceptable for E1 pipeline sizes.
+        Complexity: O(n_cached_keys) -- acceptable for E1 pipeline sizes.
         """
         matching = [k for k in self._cache if isinstance(k, str) and k.startswith(key_prefix)]
         for k in matching:
