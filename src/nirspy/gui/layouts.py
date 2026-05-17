@@ -5,6 +5,8 @@ Three-panel layout:
 - Center: pipeline view (vertical list of block cards)
 - Right panel: parameter editor (auto-generated from dataclass fields)
 
+Below the builder: visualization tabs (raw data, probe, QC, HRF).
+
 State management uses ``dcc.Store`` for pipeline state (JSON-serializable).
 """
 
@@ -15,6 +17,7 @@ from dash import dcc, html
 
 from nirspy.blocks import registry
 from nirspy.gui.components.block_catalog import render_block_catalog
+from nirspy.gui.components.run_button import render_run_button
 
 
 def create_layout() -> dbc.Container:
@@ -23,7 +26,8 @@ def create_layout() -> dbc.Container:
     Returns
     -------
     dbc.Container
-        Bootstrap fluid container with navbar + three-column body.
+        Bootstrap fluid container with navbar + three-column body
+        + visualization tabs.
     """
     navbar = dbc.Navbar(
         dbc.Container(
@@ -32,7 +36,9 @@ def create_layout() -> dbc.Container:
                 dbc.NavbarToggler(id="navbar-toggler"),
                 html.Span(
                     "fNIRS Pipeline Builder",
-                    className="text-muted small ms-3 d-none d-md-inline",
+                    className=(
+                        "text-muted small ms-3 d-none d-md-inline"
+                    ),
                 ),
             ],
             fluid=True,
@@ -44,7 +50,9 @@ def create_layout() -> dbc.Container:
 
     sidebar = dbc.Col(
         [
-            html.H5("Block Catalog", className="text-center mb-3"),
+            html.H5(
+                "Block Catalog", className="text-center mb-3"
+            ),
             html.Hr(),
             html.Div(
                 id="block-catalog",
@@ -80,17 +88,22 @@ def create_layout() -> dbc.Container:
 
     center = dbc.Col(
         [
-            html.H5("Pipeline", className="text-center mb-3"),
+            html.H5(
+                "Pipeline", className="text-center mb-3"
+            ),
             html.Hr(),
             html.Div(
                 id="pipeline-view",
                 children=[
                     html.P(
-                        "Add blocks from the catalog to build your pipeline.",
+                        "Add blocks from the catalog to "
+                        "build your pipeline.",
                         className="text-muted text-center",
                     )
                 ],
             ),
+            html.Hr(),
+            render_run_button(),
         ],
         width=6,
         className="p-3",
@@ -98,7 +111,9 @@ def create_layout() -> dbc.Container:
 
     right_panel = dbc.Col(
         [
-            html.H5("Parameters", className="text-center mb-3"),
+            html.H5(
+                "Parameters", className="text-center mb-3"
+            ),
             html.Hr(),
             html.Div(
                 id="param-editor",
@@ -120,17 +135,82 @@ def create_layout() -> dbc.Container:
         className="g-0",
     )
 
-    # Hidden stores for pipeline state + download component
+    # Visualization area below the builder
+    viz_tabs = dbc.Tabs(
+        [
+            dbc.Tab(
+                html.Div(
+                    id="raw-data-plot-container",
+                    children=html.P(
+                        "No raw data available. "
+                        "Run the pipeline first.",
+                        className="text-muted text-center py-4",
+                    ),
+                ),
+                label="Raw Data",
+                tab_id="tab-raw",
+            ),
+            dbc.Tab(
+                html.Div(
+                    id="probe-viewer-container",
+                    children=html.P(
+                        "No montage info available.",
+                        className="text-muted text-center py-4",
+                    ),
+                ),
+                label="Probe",
+                tab_id="tab-probe",
+            ),
+            dbc.Tab(
+                html.Div(
+                    id="qc-dashboard-container",
+                    children=html.P(
+                        "No QC data available.",
+                        className="text-muted text-center py-4",
+                    ),
+                ),
+                label="QC",
+                tab_id="tab-qc",
+            ),
+            dbc.Tab(
+                html.Div(
+                    [
+                        html.Div(
+                            id="condition-selector-container",
+                        ),
+                        html.Div(
+                            id="hrf-plot-container",
+                            children=html.P(
+                                "No HRF data available.",
+                                className=(
+                                    "text-muted text-center py-4"
+                                ),
+                            ),
+                        ),
+                    ],
+                ),
+                label="HRF",
+                tab_id="tab-hrf",
+            ),
+        ],
+        id="viz-tabs",
+        active_tab="tab-raw",
+        className="mt-3",
+    )
+
+    # Hidden stores for pipeline state + download + results
     stores = html.Div(
         [
             dcc.Store(id="pipeline-state", data=[]),
             dcc.Store(id="selected-block", data=None),
+            dcc.Store(id="run-results", data=None),
+            dcc.Store(id="input-file-path", data=None),
             dcc.Download(id="download-pipeline"),
         ]
     )
 
     return dbc.Container(
-        [navbar, body, stores],
+        [navbar, body, viz_tabs, stores],
         fluid=True,
         className="px-0",
     )
