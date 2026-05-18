@@ -39,7 +39,7 @@ def render_converter_tab() -> html.Div:
             ),
             className="border-dashed",
         ),
-        accept=".nirs,.snirf",
+        accept=".nirs,.snirf,.txt",
         multiple=False,
         className="mb-3",
     )
@@ -54,6 +54,10 @@ def render_converter_tab() -> html.Div:
             {
                 "label": ".snirf → .nirs",
                 "value": "snirf_to_nirs",
+            },
+            {
+                "label": "Oxysoft .txt → .snirf",
+                "value": "oxysoft_txt_to_snirf",
             },
         ],
         value="nirs_to_snirf",
@@ -93,8 +97,9 @@ def render_converter_tab() -> html.Div:
         [
             html.H5("File Converter", className="mb-3"),
             html.P(
-                "Convert between .nirs (HOMER2/3) and .snirf (SNIRF 1.1) "
-                "formats.",
+                "Convert between .nirs (HOMER2/3), .snirf (SNIRF 1.1) and "
+                "Oxysoft .txt exports. Direct .oxy3 → .snirf is planned for "
+                "a future release pending an open-source parser.",
                 className="text-muted small",
             ),
             upload_area,

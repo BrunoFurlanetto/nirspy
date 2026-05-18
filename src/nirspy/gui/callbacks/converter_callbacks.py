@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 _DIRECTION_META: dict[str, tuple[str, str]] = {
     "nirs_to_snirf": (".nirs", ".snirf"),
     "snirf_to_nirs": (".snirf", ".nirs"),
+    "oxysoft_txt_to_snirf": (".txt", ".snirf"),
 }
 
 
@@ -45,12 +46,14 @@ def _get_converter(direction: str) -> Any:
     Imported lazily so that ``unittest.mock.patch`` on the module-level
     names in ``nirspy.io.converters`` works correctly in tests.
     """
-    from nirspy.io import converters
+    from nirspy.io import converters, oxysoft_txt
 
     if direction == "nirs_to_snirf":
         return converters.nirs_to_snirf
     if direction == "snirf_to_nirs":
         return converters.snirf_to_nirs
+    if direction == "oxysoft_txt_to_snirf":
+        return oxysoft_txt.oxysoft_txt_to_snirf
     return None
 
 
