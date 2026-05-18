@@ -45,7 +45,7 @@ class TestConditionWindowsEditor:
     def test_render_no_available_conditions_shows_hint(self) -> None:
         result = render_condition_windows_editor("inst-4", None)
         html_str = str(result)
-        assert "Run pipeline first" in html_str
+        assert "No upstream SNIRF" in html_str
 
     def test_switch_off_hides_table(self) -> None:
         result = render_condition_windows_editor("inst-5", {})

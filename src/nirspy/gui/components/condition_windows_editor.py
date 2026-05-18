@@ -87,13 +87,27 @@ def _render_row(
     values: dict[str, float],
     available_conditions: list[str] | None,
 ) -> dbc.Row:
-    """Render one condition row (dropdown + 4 numeric inputs + remove btn)."""
+    """Render one condition row.
+
+    When the upstream SNIRF supplies the condition list, the name is shown
+    as a read-only label (the user is not allowed to type a free-form
+    name — avoids typos that would silently mismatch the events in the
+    file). Without an upstream SNIRF the name is editable as text fallback.
+    """
     if available_conditions:
-        cond_ctrl: Any = dbc.Select(
-            id=_row_id(instance_id, condition, "condition_name"),
-            options=[{"label": c, "value": c} for c in available_conditions],
-            value=condition,
-            size="sm",
+        cond_ctrl: Any = html.Div(
+            [
+                html.Span(condition, className="fw-semibold small"),
+                # Hidden input keeps the condition_name field present in the
+                # pattern-matching callback graph so update_cond_window
+                # never fails to resolve its id.
+                dbc.Input(
+                    id=_row_id(instance_id, condition, "condition_name"),
+                    type="hidden",
+                    value=condition,
+                ),
+            ],
+            className="d-flex align-items-center h-100",
         )
     else:
         cond_ctrl = dbc.Input(
@@ -120,26 +134,29 @@ def _render_row(
             )
         )
 
-    remove_btn = dbc.Col(
-        dbc.Button(
-            html.I(className="bi bi-x"),
-            id={
-                "type": "cond-window-remove",
-                "instance_id": instance_id,
-                "condition": condition,
-            },
-            color="danger",
-            size="sm",
-            outline=True,
-        ),
-        width=1,
-        className="d-flex align-items-center",
-    )
+    # Remove button only when name is user-controlled (manual mode).
+    # With SNIRF-driven names the row set is fixed.
+    cols: list[Any] = [dbc.Col(cond_ctrl, width=3)] + inputs
+    if not available_conditions:
+        cols.append(
+            dbc.Col(
+                dbc.Button(
+                    html.I(className="bi bi-x"),
+                    id={
+                        "type": "cond-window-remove",
+                        "instance_id": instance_id,
+                        "condition": condition,
+                    },
+                    color="danger",
+                    size="sm",
+                    outline=True,
+                ),
+                width=1,
+                className="d-flex align-items-center",
+            )
+        )
 
-    return dbc.Row(
-        [dbc.Col(cond_ctrl, width=3)] + inputs + [remove_btn],
-        className="mb-1 g-1",
-    )
+    return dbc.Row(cols, className="mb-1 g-1")
 
 
 def render_condition_windows_editor(
@@ -203,21 +220,34 @@ def render_condition_windows_editor(
             _render_row(instance_id, cond, vals, available_conditions)
         )
 
-    add_btn = dbc.Button(
-        "+ Add condition",
-        id={"type": "cond-window-add", "instance_id": instance_id},
-        color="secondary",
-        size="sm",
-        outline=True,
-        className="mt-1",
-    )
+    # Add button only appears in manual mode (no SNIRF-driven condition list)
+    table_children: list[Any] = [header] + rows
+    if not available_conditions:
+        table_children.append(
+            dbc.Button(
+                "+ Add condition",
+                id={"type": "cond-window-add", "instance_id": instance_id},
+                color="secondary",
+                size="sm",
+                outline=True,
+                className="mt-1",
+            )
+        )
 
     hint = ""
     if not available_conditions:
-        hint = "Run pipeline first to populate condition dropdown."
+        hint = (
+            "No upstream SNIRF detected — set the LoadSnirf path first or "
+            "type condition names manually."
+        )
+    else:
+        hint = (
+            f"{len(available_conditions)} condition(s) loaded from SNIRF — "
+            "edit the temporal windows below."
+        )
 
     table_div = html.Div(
-        [header] + rows + [add_btn],
+        table_children,
         id={"type": "cond-window-table", "instance_id": instance_id},
         style={"display": "block" if is_enabled else "none"},
     )
