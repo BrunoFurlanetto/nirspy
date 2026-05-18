@@ -169,10 +169,10 @@ class TestPruneChannelsBlock:
         result = block.run(context_with_sci, {"scalp_coupling_index": raw_od_with_cardiac})
         assert result.metadata["n_pruned"] == 0
 
-    def test_threshold_one(self, raw_od_with_cardiac, context_with_sci):
+    def test_threshold_one_marks_all_raises(self, raw_od_with_cardiac, context_with_sci):
         block = PruneChannelsBlock(PruneChannelsParams(sci_threshold=1.0))
-        result = block.run(context_with_sci, {"scalp_coupling_index": raw_od_with_cardiac})
-        assert result.metadata["n_pruned"] == 4
+        with pytest.raises(ValidationError, match="every channel"):
+            block.run(context_with_sci, {"scalp_coupling_index": raw_od_with_cardiac})
 
     def test_spec(self):
         block = PruneChannelsBlock()

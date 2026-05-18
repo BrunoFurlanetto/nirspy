@@ -449,15 +449,18 @@ def _parse_nirs(path: Path) -> NirsData:
             nonzero_idx = np.where(col != 0)[0]
             if nonzero_idx.size == 0:
                 continue
-            cond_name = str(float(col_idx + 1))
-            # try to read condition names from CondNames field if present
+            cond_name = str(col_idx + 1)
+            # Condition names may live inside SD (HOMER2) or at the top level
+            # of the .mat (HOMER3). Try SD first, fall back to top-level.
+            cond_names_field: Any = None
             try:
                 cond_names_field = sd.CondNames
+            except AttributeError:
+                cond_names_field = mat.get("CondNames")
+            if cond_names_field is not None:
                 names_arr = np.atleast_1d(cond_names_field).ravel()
                 if col_idx < len(names_arr):
                     cond_name = str(names_arr[col_idx])
-            except AttributeError:
-                pass
             dt = float(time_vector[1] - time_vector[0]) if len(time_vector) > 1 else 1.0
             for idx in nonzero_idx:
                 stim_events.append(

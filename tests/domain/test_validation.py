@@ -85,3 +85,55 @@ class TestValidateIoChainInvalid:
         b1 = make_block("b1", DataType.RAW, DataType.RAW_OD, enabled=False)
         b2 = make_block("b2", DataType.EVOKED, DataType.EPOCHS, enabled=False)
         validate_io_chain([b1, b2])  # must not raise — both disabled
+
+
+class TestSourceBlockValidation:
+    """Cases for DataType.NONE (source block) positional constraint."""
+
+    def test_source_block_at_position_0_is_valid(self) -> None:
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        consumer = make_block("od", DataType.RAW, DataType.RAW_OD)
+        validate_io_chain([source, consumer])  # must not raise
+
+    def test_source_block_alone_is_valid(self) -> None:
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        validate_io_chain([source])  # must not raise
+
+    def test_source_block_at_position_1_raises(self) -> None:
+        b1 = make_block("od", DataType.RAW, DataType.RAW_OD)
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        with pytest.raises(ValidationError, match="load_snirf"):
+            validate_io_chain([b1, source])
+
+    def test_source_block_at_position_2_raises(self) -> None:
+        b1 = make_block("b1", DataType.RAW, DataType.RAW_OD)
+        b2 = make_block("b2", DataType.RAW_OD, DataType.RAW_HAEMO)
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        with pytest.raises(ValidationError, match="position 2"):
+            validate_io_chain([b1, b2, source])
+
+    def test_source_block_error_message_mentions_first(self) -> None:
+        b1 = make_block("od", DataType.RAW, DataType.RAW_OD)
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW)
+        with pytest.raises(ValidationError, match="first step"):
+            validate_io_chain([b1, source])
+
+    def test_disabled_source_at_position_1_skipped(self) -> None:
+        """Disabled source blocks are excluded from the enabled list."""
+        b1 = make_block("od", DataType.RAW, DataType.RAW_OD)
+        source = make_block("load_snirf", DataType.NONE, DataType.RAW, enabled=False)
+        b3 = make_block("b3", DataType.RAW_OD, DataType.RAW_HAEMO)
+        validate_io_chain([b1, source, b3])  # disabled source skipped
+
+    def test_any_blocks_unaffected_by_none_logic(self) -> None:
+        """BandpassFilter (ANY/ANY) must still work normally."""
+        source = make_block("load", DataType.NONE, DataType.RAW)
+        bpf = make_block("bandpass", DataType.ANY, DataType.ANY)
+        consumer = make_block("mbll", DataType.RAW_OD, DataType.RAW_HAEMO)
+        validate_io_chain([source, bpf, consumer])  # must not raise
+
+    def test_none_output_skips_type_check(self) -> None:
+        """Future sink block with output_type=NONE should not cause type error."""
+        source = make_block("load", DataType.NONE, DataType.RAW)
+        sink = make_block("export", DataType.RAW, DataType.NONE)
+        validate_io_chain([source, sink])  # must not raise

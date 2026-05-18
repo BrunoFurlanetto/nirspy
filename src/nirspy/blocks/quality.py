@@ -191,8 +191,36 @@ class PruneChannelsBlock:
             if sci_val < self.params.sci_threshold and ch_name in raw_copy.ch_names:
                 bads.append(ch_name)
 
+        # fNIRS channels come in wavelength pairs (e.g. "S1_D1 760" and
+        # "S1_D1 850"). MNE rejects partial pair flagging — Beer-Lambert
+        # raises "NIRS bad labelling is not consistent" if only one
+        # wavelength of a pair is in info["bads"]. Expand each bad to all
+        # channels sharing its "Sx_Dy" prefix.
+        paired_bads: set[str] = set(bads)
+        for bad in bads:
+            prefix, sep, _ = bad.rpartition(" ")
+            if not sep:
+                continue
+            for ch in raw_copy.ch_names:
+                if ch.startswith(prefix + " "):
+                    paired_bads.add(ch)
+
         # Extend existing bads (don't overwrite)
-        raw_copy.info["bads"] = list(set(raw_copy.info["bads"] + bads))
+        new_bads = list(set(raw_copy.info["bads"]) | paired_bads)
+
+        # Refuse to mark every channel as bad — downstream blocks (Beer-Lambert,
+        # BlockAverage, ...) cannot run with zero usable channels and emit
+        # confusing low-level errors. Surface a clearer message here.
+        if new_bads and set(new_bads) >= set(raw_copy.ch_names):
+            raise ValidationError(
+                f"PruneChannelsBlock would mark every channel as bad "
+                f"(sci_threshold={self.params.sci_threshold}). "
+                f"Lower the threshold or disable this block. "
+                f"Common causes: flat-line samples at recording start, "
+                f"low sampling rate, or poor optode-scalp contact."
+            )
+
+        raw_copy.info["bads"] = new_bads
 
         return BlockResult(
             data=raw_copy,

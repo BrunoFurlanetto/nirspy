@@ -15,6 +15,10 @@ from nirspy.blocks.analysis import (
     BlockAverageParams,
 )
 from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
+from nirspy.blocks.manual_exclude import (
+    ManualChannelExcludeBlock,
+    ManualChannelExcludeParams,
+)
 from nirspy.blocks.preprocessing import (
     BandpassFilterBlock,
     BandpassFilterParams,
@@ -39,6 +43,7 @@ registry.register("bandpass_filter", BandpassFilterBlock)
 registry.register("scalp_coupling_index", ScalpCouplingIndexBlock)
 registry.register("prune_channels", PruneChannelsBlock)
 registry.register("block_average", BlockAverageBlock)
+registry.register("manual_channel_exclude", ManualChannelExcludeBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -48,6 +53,8 @@ __all__ = [
     "BlockAverageBlock",
     "BlockAverageParams",
     "BlockRegistry",
+    "ManualChannelExcludeBlock",
+    "ManualChannelExcludeParams",
     "LoadSnirfBlock",
     "LoadSnirfParams",
     "OpticalDensityBlock",

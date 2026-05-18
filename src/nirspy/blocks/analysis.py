@@ -99,6 +99,19 @@ class BlockAverageBlock:
             )
 
         # Validate params
+        required = {
+            "tmin": self.params.tmin,
+            "tmax": self.params.tmax,
+            "baseline_tmin": self.params.baseline_tmin,
+            "baseline_tmax": self.params.baseline_tmax,
+        }
+        missing = [name for name, val in required.items() if val is None]
+        if missing:
+            raise ValidationError(
+                f"BlockAverageBlock: required parameter(s) "
+                f"{missing} must not be empty."
+            )
+
         if self.params.baseline_tmin > self.params.baseline_tmax:
             raise ValidationError(
                 f"BlockAverageBlock: baseline_tmin ({self.params.baseline_tmin}) "
@@ -171,10 +184,14 @@ class BlockAverageBlock:
         evoked_dict = self._adapter.average_epochs(epochs)
 
         # Build metadata with epoch stats
+        skipped_conditions = [
+            cond for cond in epochs.event_id if cond not in evoked_dict
+        ]
         metadata: dict[str, Any] = {
             "conditions": list(evoked_dict.keys()),
             "n_conditions": len(evoked_dict),
             "n_epochs_total": len(epochs.events),
+            "skipped_conditions": skipped_conditions,
             "tmin": self.params.tmin,
             "tmax": self.params.tmax,
         }
