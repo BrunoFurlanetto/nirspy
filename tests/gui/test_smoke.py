@@ -211,6 +211,7 @@ class TestImportSanity5D:
 
     def test_render_error_signature(self) -> None:
         import inspect
+
         from nirspy.gui.components.error_display import render_error
         sig = inspect.signature(render_error)
         assert "message" in sig.parameters
@@ -218,6 +219,7 @@ class TestImportSanity5D:
 
     def test_tooltip_for_signature(self) -> None:
         import inspect
+
         from nirspy.gui.components.tooltips import tooltip_for
         sig = inspect.signature(tooltip_for)
         assert "block_id" in sig.parameters

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 from nirspy.blocks.manual_exclude import ManualChannelExcludeParams
 from nirspy.gui.components.param_editor import _field_to_input, render_param_editor
-
-import dataclasses
 
 
 class TestListStrMultiselect:

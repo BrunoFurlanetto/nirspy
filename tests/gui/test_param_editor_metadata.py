@@ -51,16 +51,18 @@ class TestParamMetaInEditor:
     """ParamMeta is consumed by _field_to_input for labels, tooltips, attrs."""
 
     def test_label_uses_meta_label(self) -> None:
-        from nirspy.blocks.preprocessing import BeerLambertParams
         import dataclasses
+
+        from nirspy.blocks.preprocessing import BeerLambertParams
         ppf_field = dataclasses.fields(BeerLambertParams)[0]
         components = _field_to_input(ppf_field, 6.0, "inst-1", "beer_lambert")
         html_str = str(components[0])
         assert "DPF" in html_str
 
     def test_tooltip_rendered_for_known_field(self) -> None:
-        from nirspy.blocks.preprocessing import BeerLambertParams
         import dataclasses
+
+        from nirspy.blocks.preprocessing import BeerLambertParams
         ppf_field = dataclasses.fields(BeerLambertParams)[0]
         components = _field_to_input(ppf_field, 6.0, "inst-1", "beer_lambert")
         assert len(components) >= 2
@@ -77,8 +79,9 @@ class TestParamMetaInEditor:
         assert len(components) == 1
 
     def test_min_max_on_input(self) -> None:
-        from nirspy.blocks.preprocessing import BeerLambertParams
         import dataclasses
+
+        from nirspy.blocks.preprocessing import BeerLambertParams
         ppf_field = dataclasses.fields(BeerLambertParams)[0]
         components = _field_to_input(ppf_field, 6.0, "inst-1", "beer_lambert")
         html_str = str(components[0])
@@ -86,8 +89,9 @@ class TestParamMetaInEditor:
         assert "8" in html_str
 
     def test_unit_in_label(self) -> None:
-        from nirspy.blocks.preprocessing import BandpassFilterParams
         import dataclasses
+
+        from nirspy.blocks.preprocessing import BandpassFilterParams
         l_freq_field = dataclasses.fields(BandpassFilterParams)[0]
         components = _field_to_input(l_freq_field, 0.01, "inst-1", "bandpass_filter")
         assert "Hz" in str(components[0])
@@ -97,16 +101,18 @@ class TestOptionalFloatCheckbox:
     """Optional[float] fields get use-default checkbox."""
 
     def test_optional_float_has_checkbox(self) -> None:
-        from nirspy.blocks.preprocessing import BandpassFilterParams
         import dataclasses
+
+        from nirspy.blocks.preprocessing import BandpassFilterParams
         l_freq_field = dataclasses.fields(BandpassFilterParams)[0]
         components = _field_to_input(l_freq_field, None, "inst-1", "bandpass_filter")
         html_str = str(components[0])
         assert "use default" in html_str
 
     def test_optional_float_disabled_when_none(self) -> None:
-        from nirspy.blocks.preprocessing import BandpassFilterParams
         import dataclasses
+
+        from nirspy.blocks.preprocessing import BandpassFilterParams
         l_freq_field = dataclasses.fields(BandpassFilterParams)[0]
         components = _field_to_input(l_freq_field, None, "inst-1", "bandpass_filter")
         html_str = str(components[0])
