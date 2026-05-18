@@ -47,18 +47,26 @@ def _build_pipeline_from_state(
         block_cls = registry.get(block_id)
         spec: BlockSpec = block_cls.SPEC  # type: ignore[attr-defined]
 
-        # Instantiate block with params
+        # Instantiate block with params. We deliberately *do not* swallow
+        # TypeError/ValueError here -- silently falling back to a default
+        # block instance was hiding bad user input (e.g. an unknown param
+        # name or a malformed per_condition_windows dict), so the pipeline
+        # ran with stale defaults and the user wondered why their changes
+        # had no effect.
         if (
             spec.params_class is not None
             and dataclasses.is_dataclass(spec.params_class)
             and params_dict
         ):
             try:
-                block_instance = block_cls(  # type: ignore[call-arg]
-                    spec.params_class(**params_dict)
-                )
-            except (TypeError, ValueError):
-                block_instance = block_cls()
+                params_instance = spec.params_class(**params_dict)
+            except (TypeError, ValueError) as exc:
+                raise NirspyError(
+                    f"Invalid parameters for '{block_id}': {exc}"
+                ) from exc
+            block_instance = block_cls(  # type: ignore[call-arg]
+                params_instance
+            )
         else:
             block_instance = block_cls()
 
@@ -176,7 +184,10 @@ def run_pipeline_callback(
             "", False,
         )
 
-    # Cache results for viz callbacks
+    # Cache results for viz callbacks. Clear previous entries so we don't
+    # leak MNE objects (and so the user can never accidentally see stale
+    # results from a previous run).
+    _VIZ_CACHE.clear()
     cache_key = str(uuid.uuid4())
     _VIZ_CACHE[cache_key] = {
         "results": results,
