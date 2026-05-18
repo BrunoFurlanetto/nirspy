@@ -131,9 +131,23 @@ def select_block(
     current_selected: str | None,
 ) -> Any:
     """Set the selected block when a card is clicked."""
-    if not ctx.triggered_id or all(c is None for c in n_clicks):
+    if not ctx.triggered_id:
         return no_update
-
+    # Identify the n_clicks for the specific card that triggered. If it is
+    # zero/None we are on the initial render fire — don't change selection.
+    triggered_index = next(
+        (
+            i
+            for i, inp in enumerate(ctx.inputs_list[0])
+            if inp.get("id") == ctx.triggered_id
+        ),
+        None,
+    )
+    if triggered_index is None:
+        return no_update
+    n = n_clicks[triggered_index]
+    if not n:
+        return no_update
     instance_id: str = ctx.triggered_id["instance_id"]
     if instance_id == current_selected:
         return None

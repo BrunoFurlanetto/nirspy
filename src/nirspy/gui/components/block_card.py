@@ -108,101 +108,83 @@ def render_block_card(
         is_first=is_first,
     )
 
+    # Clickable area = the label/badge column (left half). Action buttons
+    # (up/down/remove/switch) live in the right column outside this wrapper
+    # so they don't double-fire the selection callback.
+    label_block = html.Div(
+        [
+            html.Span(display_name, className="fw-bold small"),
+            html.Div(
+                [
+                    dbc.Badge(
+                        input_type,
+                        color="info",
+                        pill=True,
+                        className="me-1",
+                    ),
+                    html.Span(
+                        "→",
+                        className="text-muted small mx-1",
+                    ),
+                    dbc.Badge(output_type, color="info", pill=True),
+                ],
+                className="mt-1",
+            ),
+        ],
+        id={"type": "block-card", "instance_id": instance_id},
+        n_clicks=0,
+        style={"cursor": "pointer"},
+    )
+
+    actions = html.Div(
+        [
+            dbc.Button(
+                "▲",
+                id={"type": "btn-up", "instance_id": instance_id},
+                size="sm",
+                color="outline-secondary",
+                className="me-1",
+                disabled=is_first,
+            ),
+            dbc.Button(
+                "▼",
+                id={"type": "btn-down", "instance_id": instance_id},
+                size="sm",
+                color="outline-secondary",
+                className="me-1",
+                disabled=is_last,
+            ),
+            dbc.Button(
+                "✕",
+                id={"type": "btn-remove", "instance_id": instance_id},
+                size="sm",
+                color="outline-danger",
+                className="me-1",
+            ),
+            dbc.Switch(
+                id={"type": "switch-enable", "instance_id": instance_id},
+                value=enabled,
+                className="d-inline-block ms-2",
+            ),
+        ],
+        className="d-flex align-items-center justify-content-end",
+    )
+
     card = dbc.Card(
         dbc.CardBody(
-            [
-                dbc.Row(
-                    [
-                        dbc.Col(
-                            html.Div(
-                                [
-                                    html.Span(
-                                        display_name,
-                                        className="fw-bold small",
-                                    ),
-                                    html.Div(
-                                        [
-                                            dbc.Badge(
-                                                input_type,
-                                                color="info",
-                                                pill=True,
-                                                className="me-1",
-                                            ),
-                                            html.Span(
-                                                "→",
-                                                className="text-muted small mx-1",
-                                            ),
-                                            dbc.Badge(
-                                                output_type,
-                                                color="info",
-                                                pill=True,
-                                            ),
-                                        ],
-                                        className="mt-1",
-                                    ),
-                                ],
-                            ),
-                            width=6,
-                        ),
-                        dbc.Col(
-                            html.Div(
-                                [
-                                    dbc.Button(
-                                        "▲",
-                                        id={
-                                            "type": "btn-up",
-                                            "instance_id": instance_id,
-                                        },
-                                        size="sm",
-                                        color="outline-secondary",
-                                        className="me-1",
-                                        disabled=is_first,
-                                    ),
-                                    dbc.Button(
-                                        "▼",
-                                        id={
-                                            "type": "btn-down",
-                                            "instance_id": instance_id,
-                                        },
-                                        size="sm",
-                                        color="outline-secondary",
-                                        className="me-1",
-                                        disabled=is_last,
-                                    ),
-                                    dbc.Button(
-                                        "✕",
-                                        id={
-                                            "type": "btn-remove",
-                                            "instance_id": instance_id,
-                                        },
-                                        size="sm",
-                                        color="outline-danger",
-                                        className="me-1",
-                                    ),
-                                    dbc.Switch(
-                                        id={
-                                            "type": "switch-enable",
-                                            "instance_id": instance_id,
-                                        },
-                                        value=enabled,
-                                        className="d-inline-block ms-2",
-                                    ),
-                                ],
-                                className="d-flex align-items-center justify-content-end",
-                            ),
-                            width=6,
-                        ),
-                    ],
-                    align="center",
-                ),
-            ],
+            dbc.Row(
+                [
+                    dbc.Col(label_block, width=6),
+                    dbc.Col(actions, width=6),
+                ],
+                align="center",
+            ),
             className="p-2",
         ),
-        id={"type": "block-card", "instance_id": instance_id},
         color=border_colour,
         outline=True,
         className="mb-1",
-        style={"opacity": opacity, "cursor": "pointer"},
+        style={"opacity": opacity},
     )
 
     return html.Div([compat_dot, card])

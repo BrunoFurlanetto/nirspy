@@ -37,11 +37,14 @@ def update_param(
                 with contextlib.suppress(json.JSONDecodeError, ValueError):
                     new_value = json.loads(new_value)
 
-            # Convert empty string to None for numeric fields
-            if new_value == "":
-                new_value = None
-
-            params[field_name] = new_value
+            # An empty input means "fall back to the dataclass default".
+            # Dropping the key from params lets `block_cls(**params)` honour
+            # the default — keeping the key with None would crash blocks
+            # whose field type is non-Optional float/int.
+            if new_value == "" or new_value is None:
+                params.pop(field_name, None)
+            else:
+                params[field_name] = new_value
             entry["params"] = params
             break
 

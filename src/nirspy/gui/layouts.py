@@ -18,6 +18,7 @@ from dash import dcc, html
 
 from nirspy.blocks import registry
 from nirspy.gui.components.block_catalog import render_block_catalog
+from nirspy.gui.components.condition_selector import render_condition_selector
 from nirspy.gui.components.converter_view import render_converter_tab
 from nirspy.gui.components.run_button import render_run_button
 
@@ -179,6 +180,7 @@ def create_layout() -> dbc.Container:
                     [
                         html.Div(
                             id="condition-selector-container",
+                            children=render_condition_selector(None),
                         ),
                         html.Div(
                             id="hrf-plot-container",
