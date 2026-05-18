@@ -107,7 +107,6 @@ class TestYamlRoundTripPerConditionWindows:
 
     def test_round_trip_empty_per_condition(self, tmp_path: Path) -> None:
         """Pipeline with empty per_condition_windows round-trips."""
-        import yaml
 
         from nirspy.blocks import registry
         from nirspy.blocks.analysis import BlockAverageBlock, BlockAverageParams

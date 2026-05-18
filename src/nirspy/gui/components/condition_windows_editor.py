@@ -11,10 +11,64 @@ to :func:`render_condition_windows_editor` via a surgical check.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import dash_bootstrap_components as dbc
 from dash import html
+
+
+def read_snirf_condition_names(snirf_path: str | None) -> list[str] | None:
+    """Read stim condition names directly from a SNIRF file.
+
+    Reads ``nirs/stim*/name`` via h5py without loading channel data, so it
+    is cheap to call on every render. Returns ``None`` when the path is
+    empty, missing, or unreadable — caller falls back to manual text entry.
+    """
+    if not snirf_path:
+        return None
+    p = Path(snirf_path)
+    if not p.exists() or not p.is_file():
+        return None
+    try:
+        import h5py
+        import numpy as np
+    except ImportError:
+        return None
+    names: list[str] = []
+    try:
+        with h5py.File(p, "r") as f:
+            if "nirs" not in f:
+                return None
+            nirs = f["nirs"]
+            stim_keys = sorted(
+                k for k in nirs if k.startswith("stim")
+            )
+            for key in stim_keys:
+                grp = nirs[key]
+                if "name" not in grp:
+                    continue
+                raw = np.array(grp["name"]).ravel()
+                if raw.size == 0:
+                    continue
+                val = raw.item() if raw.size == 1 else raw[0]
+                name = (
+                    val.decode("utf-8", errors="replace")
+                    if isinstance(val, bytes)
+                    else str(val)
+                ).strip()
+                if name:
+                    names.append(name)
+    except (OSError, KeyError, ValueError):
+        return None
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            unique.append(n)
+    return unique or None
 
 
 def _row_id(instance_id: str, condition: str, field: str) -> dict[str, str]:
