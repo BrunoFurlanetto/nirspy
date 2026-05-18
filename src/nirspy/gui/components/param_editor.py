@@ -28,6 +28,9 @@ from typing import Any, Union, get_args, get_origin
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from nirspy.gui.components.condition_windows_editor import (
+    render_condition_windows_editor,
+)
 from nirspy.gui.components.param_metadata import ParamMeta, metadata_for
 
 # Mapping from stringified annotations to concrete types
@@ -139,6 +142,7 @@ def _field_to_input(
     block_id: str,
     *,
     available_channels: list[str] | None = None,
+    available_conditions: list[str] | None = None,
 ) -> list[Any]:
     """Convert a single dataclass field to form row(s).
 
@@ -146,6 +150,16 @@ def _field_to_input(
     optional ``dbc.Tooltip``).
     """
     field_name = field.name
+
+    # Surgical delegation for per_condition_windows (T-012)
+    if block_id == "block_average" and field_name == "per_condition_windows":
+        editor = render_condition_windows_editor(
+            instance_id,
+            value if isinstance(value, dict) else None,
+            available_conditions=available_conditions,
+        )
+        return [editor]
+
     input_id: dict[str, str] = {
         "type": "param-input",
         "instance_id": instance_id,
@@ -322,6 +336,7 @@ def render_param_editor(
     current_values: dict[str, Any],
     *,
     available_channels: list[str] | None = None,
+    available_conditions: list[str] | None = None,
 ) -> html.Div:
     """Auto-generate a parameter form for *params_class*.
 
@@ -382,6 +397,7 @@ def render_param_editor(
                 instance_id,
                 block_id,
                 available_channels=available_channels,
+                available_conditions=available_conditions,
             )
         )
 

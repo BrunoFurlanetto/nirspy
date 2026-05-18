@@ -49,3 +49,169 @@ def update_param(
             break
 
     return state
+
+
+# ---------------------------------------------------------------------------
+# Per-condition windows callbacks (T-012)
+# ---------------------------------------------------------------------------
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cond-window-row", "instance_id": ALL,
+         "condition": ALL, "field": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_condition_window(
+    values: list[Any],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Update a single field within per_condition_windows."""
+    if not ctx.triggered_id:
+        return no_update
+
+    tid = ctx.triggered_id
+    instance_id: str = tid["instance_id"]
+    condition: str = tid["condition"]
+    field_name: str = tid["field"]
+    new_value = ctx.triggered[0]["value"] if ctx.triggered else None
+
+    if field_name == "condition_name":
+        # Renaming a condition is not handled here (complex UX)
+        return no_update
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] == instance_id:
+            params = dict(entry.get("params", {}))
+            pcw = dict(params.get("per_condition_windows", {}))
+            cond_dict = dict(pcw.get(condition, {}))
+            if new_value is not None and new_value != "":
+                cond_dict[field_name] = float(new_value)
+            pcw[condition] = cond_dict
+            params["per_condition_windows"] = pcw
+            entry["params"] = params
+            break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cond-window-add", "instance_id": ALL},
+        "n_clicks",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def add_condition_window(
+    n_clicks: list[int | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Add a new empty condition row to per_condition_windows."""
+    if not ctx.triggered_id or not any(n_clicks):
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] == instance_id:
+            params = dict(entry.get("params", {}))
+            pcw = dict(params.get("per_condition_windows", {}))
+            # Generate a placeholder name
+            idx = len(pcw) + 1
+            name = f"condition_{idx}"
+            while name in pcw:
+                idx += 1
+                name = f"condition_{idx}"
+            pcw[name] = {
+                "tmin": -2.0,
+                "tmax": 18.0,
+                "baseline_tmin": -2.0,
+                "baseline_tmax": 0.0,
+            }
+            params["per_condition_windows"] = pcw
+            entry["params"] = params
+            break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cond-window-remove", "instance_id": ALL,
+         "condition": ALL},
+        "n_clicks",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def remove_condition_window(
+    n_clicks: list[int | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Remove a condition row from per_condition_windows."""
+    if not ctx.triggered_id or not any(n_clicks):
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    condition: str = ctx.triggered_id["condition"]
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] == instance_id:
+            params = dict(entry.get("params", {}))
+            pcw = dict(params.get("per_condition_windows", {}))
+            pcw.pop(condition, None)
+            params["per_condition_windows"] = pcw
+            entry["params"] = params
+            break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cond-window-switch", "instance_id": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def toggle_condition_windows(
+    values: list[bool],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Toggle per-condition windows on/off (clear dict when off)."""
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    is_enabled = ctx.triggered[0]["value"] if ctx.triggered else False
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] == instance_id:
+            params = dict(entry.get("params", {}))
+            if not is_enabled:
+                params["per_condition_windows"] = {}
+            elif not params.get("per_condition_windows"):
+                # Enable with one empty row
+                params["per_condition_windows"] = {
+                    "condition_1": {
+                        "tmin": -2.0,
+                        "tmax": 18.0,
+                        "baseline_tmin": -2.0,
+                        "baseline_tmax": 0.0,
+                    }
+                }
+            entry["params"] = params
+            break
+
+    return state
