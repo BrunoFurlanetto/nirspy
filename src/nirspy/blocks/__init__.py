@@ -13,6 +13,7 @@ full set.  Instantiation happens at pipeline-assembly time (ADR-009).
 from nirspy.blocks.analysis import (
     BlockAverageBlock,
     BlockAverageParams,
+    ConditionWindow,
 )
 from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
 from nirspy.blocks.manual_exclude import (
@@ -52,6 +53,7 @@ __all__ = [
     "BeerLambertParams",
     "BlockAverageBlock",
     "BlockAverageParams",
+    "ConditionWindow",
     "BlockRegistry",
     "ManualChannelExcludeBlock",
     "ManualChannelExcludeParams",
