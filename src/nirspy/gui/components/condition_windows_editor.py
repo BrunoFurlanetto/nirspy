@@ -1,12 +1,14 @@
 """Per-condition temporal window editor for BlockAverage.
 
-Renders a Switch (on/off) plus a dynamic table of condition rows,
-each with a dropdown for condition name and four numeric inputs
-(tmin, tmax, baseline_tmin, baseline_tmax).
+Conditions are **always** sourced from the upstream LoadSnirf file —
+the user is never asked to type condition names. When no usable SNIRF
+is reachable the editor disables itself and tells the user to set the
+LoadSnirf path first.
 
-This component is only used when the selected block is ``block_average``
-and the field is ``per_condition_windows``.  The param_editor delegates
-to :func:`render_condition_windows_editor` via a surgical check.
+Layout: Switch ("Use per-condition windows") + read-only row per
+condition with four numeric inputs (tmin, tmax, baseline_tmin,
+baseline_tmax). No add / remove buttons — the row set is dictated by
+the file.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ def read_snirf_condition_names(snirf_path: str | None) -> list[str] | None:
 
     Reads ``nirs/stim*/name`` via h5py without loading channel data, so it
     is cheap to call on every render. Returns ``None`` when the path is
-    empty, missing, or unreadable — caller falls back to manual text entry.
+    empty, missing, or unreadable.
     """
     if not snirf_path:
         return None
@@ -61,7 +63,6 @@ def read_snirf_condition_names(snirf_path: str | None) -> list[str] | None:
                     names.append(name)
     except (OSError, KeyError, ValueError):
         return None
-    # Deduplicate preserving order
     seen: set[str] = set()
     unique: list[str] = []
     for n in names:
@@ -85,78 +86,32 @@ def _render_row(
     instance_id: str,
     condition: str,
     values: dict[str, float],
-    available_conditions: list[str] | None,
 ) -> dbc.Row:
-    """Render one condition row.
-
-    When the upstream SNIRF supplies the condition list, the name is shown
-    as a read-only label (the user is not allowed to type a free-form
-    name — avoids typos that would silently mismatch the events in the
-    file). Without an upstream SNIRF the name is editable as text fallback.
-    """
-    if available_conditions:
-        cond_ctrl: Any = html.Div(
-            [
-                html.Span(condition, className="fw-semibold small"),
-                # Hidden input keeps the condition_name field present in the
-                # pattern-matching callback graph so update_cond_window
-                # never fails to resolve its id.
-                dbc.Input(
-                    id=_row_id(instance_id, condition, "condition_name"),
-                    type="hidden",
-                    value=condition,
-                ),
-            ],
-            className="d-flex align-items-center h-100",
-        )
-    else:
-        cond_ctrl = dbc.Input(
-            id=_row_id(instance_id, condition, "condition_name"),
-            type="text",
-            value=condition,
-            size="sm",
-            placeholder="Type condition name",
-        )
+    """Render one read-only-name row with four numeric window inputs."""
+    name_cell = html.Div(
+        html.Span(condition, className="fw-semibold small"),
+        className="d-flex align-items-center h-100",
+    )
 
     fields = ["tmin", "tmax", "baseline_tmin", "baseline_tmax"]
-    inputs = []
-    for f in fields:
-        inputs.append(
-            dbc.Col(
-                dbc.Input(
-                    id=_row_id(instance_id, condition, f),
-                    type="number",
-                    value=values.get(f, 0),
-                    size="sm",
-                    step=1.0,
-                ),
-                width=2,
-            )
+    inputs = [
+        dbc.Col(
+            dbc.Input(
+                id=_row_id(instance_id, condition, f),
+                type="number",
+                value=values.get(f, 0),
+                size="sm",
+                step=1.0,
+            ),
+            width=2,
         )
+        for f in fields
+    ]
 
-    # Remove button only when name is user-controlled (manual mode).
-    # With SNIRF-driven names the row set is fixed.
-    cols: list[Any] = [dbc.Col(cond_ctrl, width=3)] + inputs
-    if not available_conditions:
-        cols.append(
-            dbc.Col(
-                dbc.Button(
-                    html.I(className="bi bi-x"),
-                    id={
-                        "type": "cond-window-remove",
-                        "instance_id": instance_id,
-                        "condition": condition,
-                    },
-                    color="danger",
-                    size="sm",
-                    outline=True,
-                ),
-                width=1,
-                className="d-flex align-items-center",
-            )
-        )
-
-    return dbc.Row(cols, className="mb-1 g-1")
+    return dbc.Row(
+        [dbc.Col(name_cell, width=4)] + inputs,
+        className="mb-1 g-1",
+    )
 
 
 def render_condition_windows_editor(
@@ -174,90 +129,77 @@ def render_condition_windows_editor(
         Current ``per_condition_windows`` dict (may contain raw dicts
         or ConditionWindow-like objects).
     available_conditions:
-        Condition names from the last pipeline run, or ``None``.
-
-    Returns
-    -------
-    html.Div
-        Complete widget with switch, header, rows and add button.
+        Condition names harvested from the upstream LoadSnirf file. When
+        ``None`` (or empty) the editor renders disabled with a hint.
     """
     current_value = current_value or {}
-    is_enabled = len(current_value) > 0
+    has_snirf = bool(available_conditions)
+    is_enabled = has_snirf and len(current_value) > 0
 
     switch = dbc.Switch(
         id={"type": "cond-window-switch", "instance_id": instance_id},
         label="Use per-condition windows",
         value=is_enabled,
+        disabled=not has_snirf,
         className="mb-2",
     )
 
+    if not has_snirf:
+        return html.Div(
+            [
+                html.Label(
+                    "Per-condition windows",
+                    className="small fw-bold mb-1",
+                ),
+                switch,
+                html.Small(
+                    "Set the LoadSnirf path first — conditions are read "
+                    "from the .snirf file and cannot be typed manually.",
+                    className="text-muted d-block mb-1",
+                ),
+            ],
+            className="mb-3 p-2 border rounded",
+        )
+
     header = dbc.Row(
         [
-            dbc.Col(html.Small("Condition", className="fw-bold"), width=3),
+            dbc.Col(html.Small("Condition", className="fw-bold"), width=4),
             dbc.Col(html.Small("tmin", className="fw-bold"), width=2),
             dbc.Col(html.Small("tmax", className="fw-bold"), width=2),
             dbc.Col(html.Small("bl_tmin", className="fw-bold"), width=2),
             dbc.Col(html.Small("bl_tmax", className="fw-bold"), width=2),
-            dbc.Col(html.Small(""), width=1),
         ],
         className="mb-1 g-1",
     )
 
     rows = []
-    for cond, win in current_value.items():
-        if hasattr(win, "tmin"):
+    for cond in available_conditions or []:
+        win = current_value.get(cond)
+        vals: dict[str, float] = {}
+        if win is None:
+            pass
+        elif isinstance(win, dict):
+            vals = win
+        elif hasattr(win, "tmin"):
             vals = {
                 "tmin": win.tmin,
                 "tmax": win.tmax,
                 "baseline_tmin": win.baseline_tmin,
                 "baseline_tmax": win.baseline_tmax,
             }
-        elif isinstance(win, dict):
-            vals = win
-        else:
-            vals = {}
-        rows.append(
-            _render_row(instance_id, cond, vals, available_conditions)
-        )
+        rows.append(_render_row(instance_id, cond, vals))
 
-    # Add button only appears in manual mode (no SNIRF-driven condition list)
-    table_children: list[Any] = [header] + rows
-    if not available_conditions:
-        table_children.append(
-            dbc.Button(
-                "+ Add condition",
-                id={"type": "cond-window-add", "instance_id": instance_id},
-                color="secondary",
-                size="sm",
-                outline=True,
-                className="mt-1",
-            )
-        )
-
-    hint = ""
-    if not available_conditions:
-        hint = (
-            "No upstream SNIRF detected — set the LoadSnirf path first or "
-            "type condition names manually."
-        )
-    else:
-        hint = (
-            f"{len(available_conditions)} condition(s) loaded from SNIRF — "
-            "edit the temporal windows below."
-        )
+    hint = html.Small(
+        f"{len(available_conditions or [])} condition(s) loaded from SNIRF — "
+        "edit the temporal windows below.",
+        className="text-muted d-block mb-1",
+    )
 
     table_div = html.Div(
-        table_children,
+        [header] + rows,
         id={"type": "cond-window-table", "instance_id": instance_id},
         style={"display": "block" if is_enabled else "none"},
     )
-
-    children = [switch]
-    if hint:
-        children.append(
-            html.Small(hint, className="text-muted d-block mb-1")
-        )
-    children.append(table_div)
 
     return html.Div(
         [
@@ -265,7 +207,9 @@ def render_condition_windows_editor(
                 "Per-condition windows",
                 className="small fw-bold mb-1",
             ),
-        ]
-        + children,
+            switch,
+            hint,
+            table_div,
+        ],
         className="mb-3 p-2 border rounded",
     )
