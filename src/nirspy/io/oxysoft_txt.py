@@ -127,7 +127,7 @@ def _parse_header(text: str) -> dict[str, Any]:
 
 def _parse_data_block(
     text: str, n_data_cols: int
-) -> tuple[np.ndarray, list[tuple[int, str]]]:
+) -> tuple[np.ndarray[Any, Any], list[tuple[int, str]]]:
     """Return ``(intensity_matrix, events)`` from the tab-delimited data block.
 
     ``intensity_matrix`` has shape ``(n_samples, n_data_cols)``. Events are
