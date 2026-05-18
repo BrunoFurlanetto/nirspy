@@ -190,13 +190,19 @@ def _parse_oxysoft_txt(path: Path) -> NirsData:
         raise NirsParseError(
             "Oxysoft .txt header missing 'Datafile sample rate'.", path=path
         )
-    if not header["channels"]:
-        raise NirsParseError(
-            "Oxysoft .txt header missing channel legend.", path=path
-        )
     if not header["wavelengths"]:
         raise NirsParseError(
             "Oxysoft .txt header missing 'Light source wavelengths' table.",
+            path=path,
+        )
+    if not header["channels"]:
+        # Common when Oxysoft export deselected the data traces (legend lists
+        # only "Sample number" + "(Event)" and the data block has no channel
+        # columns). Without channel data we cannot produce a usable SNIRF.
+        raise NirsParseError(
+            "Oxysoft .txt export contains no channel data — only events were "
+            "exported. Re-export from Oxysoft with the optical traces "
+            "selected (Rx - Tx columns) before converting.",
             path=path,
         )
 
