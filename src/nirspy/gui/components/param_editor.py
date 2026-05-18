@@ -7,6 +7,13 @@ Bootstrap form with appropriate input widgets per field type.
 No per-block form is hardcoded; everything is derived from the dataclass
 definition (ADR-007).
 
+When a :class:`~nirspy.gui.components.param_metadata.ParamMeta` entry exists
+for a ``(block_id, field_name)`` pair the editor renders a rich label
+(with unit), a tooltip (description + reference) and HTML5 min/max/step
+attributes.  ``Optional[float]`` fields get a "use default" checkbox.
+``list[str]`` fields render a multi-select dropdown when channel names are
+available, with a text-input fallback otherwise.
+
 Note: because many block modules use ``from __future__ import annotations``,
 ``field.type`` is often a *string* rather than an actual type object.  The
 helper :func:`_resolve_field_type` normalises both representations.
@@ -19,7 +26,9 @@ import types
 from typing import Any, Union, get_args, get_origin
 
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import dcc, html
+
+from nirspy.gui.components.param_metadata import ParamMeta, metadata_for
 
 # Mapping from stringified annotations to concrete types
 _STR_TYPE_MAP: dict[str, type[Any]] = {
@@ -45,8 +54,13 @@ def _resolve_field_type(tp: Any) -> tuple[bool, type[Any]]:
             parts = [p for p in clean.split("|") if p.lower() != "none"]
             is_opt = len(parts) < len(clean.split("|"))
             if len(parts) == 1:
-                return is_opt, _STR_TYPE_MAP.get(parts[0], str)
+                inner = parts[0]
+                if inner.startswith("list[") and inner.endswith("]"):
+                    return is_opt, list
+                return is_opt, _STR_TYPE_MAP.get(inner, str)
             return is_opt, str
+        if clean.startswith("list[") and clean.endswith("]"):
+            return False, list
         return False, _STR_TYPE_MAP.get(clean, str)
 
     # --- real type objects ---
@@ -55,7 +69,14 @@ def _resolve_field_type(tp: Any) -> tuple[bool, type[Any]]:
         args = get_args(tp)
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1 and len(args) == 2:
-            return True, non_none[0]
+            inner = non_none[0]
+            inner_origin = get_origin(inner)
+            if inner_origin is list:
+                return True, list
+            return True, inner
+
+    if origin is list:
+        return False, list
 
     if tp is bool:
         return False, bool
@@ -69,65 +90,210 @@ def _resolve_field_type(tp: Any) -> tuple[bool, type[Any]]:
     return False, str
 
 
+
+def _make_label(field_name: str, meta: ParamMeta | None) -> str:
+    """Build the display label from metadata or raw field name."""
+    if meta is None:
+        return field_name
+    label = meta.label
+    if meta.unit:
+        label = f"{label} ({meta.unit})"
+    return label
+
+
+def _make_tooltip(
+    meta: ParamMeta | None,
+    target_id: dict[str, str],
+) -> dbc.Tooltip | None:
+    """Build a ``dbc.Tooltip`` if metadata has a description."""
+    if meta is None or not meta.description:
+        return None
+    text = meta.description
+    if meta.reference:
+        text = f"{text}\n\nRef: {meta.reference}"
+    return dbc.Tooltip(
+        text,
+        target=target_id,
+        placement="right",
+        delay={"show": 300, "hide": 100},
+    )
+
+
+def _numeric_attrs(meta: ParamMeta | None) -> dict[str, Any]:
+    """Extract min/max/step kwargs for ``dbc.Input`` from metadata."""
+    attrs: dict[str, Any] = {}
+    if meta is None:
+        return attrs
+    if meta.min is not None:
+        attrs["min"] = meta.min
+    if meta.max is not None:
+        attrs["max"] = meta.max
+    if meta.step is not None:
+        attrs["step"] = meta.step
+    return attrs
+
 def _field_to_input(
     field: dataclasses.Field[Any],
     value: Any,
     instance_id: str,
-) -> dbc.Row:
-    """Convert a single dataclass field to a form row."""
-    field_name = field.name
-    input_id = {"type": "param-input", "instance_id": instance_id, "field": field_name}
+    block_id: str,
+    *,
+    available_channels: list[str] | None = None,
+) -> list[Any]:
+    """Convert a single dataclass field to form row(s).
 
-    _optional, resolved = _resolve_field_type(field.type)
+    Returns a **list** of components (usually one ``dbc.Row`` plus an
+    optional ``dbc.Tooltip``).
+    """
+    field_name = field.name
+    input_id: dict[str, str] = {
+        "type": "param-input",
+        "instance_id": instance_id,
+        "field": field_name,
+    }
+
+    meta = metadata_for(block_id, field_name)
+    label_text = _make_label(field_name, meta)
+    tooltip = _make_tooltip(meta, input_id)
+
+    is_optional, resolved = _resolve_field_type(field.type)
+
+    components: list[Any] = []
+
+    # --- list[str] (multiselect / text fallback) ---------------------------
+    if resolved is list:
+        current_list: list[str] = value if isinstance(value, list) else []
+        if available_channels:
+            ctrl: Any = dcc.Dropdown(
+                id=input_id,
+                options=[{"label": ch, "value": ch} for ch in available_channels],
+                value=current_list,
+                multi=True,
+                placeholder="Select channels...",
+            )
+        else:
+            ctrl = dbc.Input(
+                id=input_id,
+                type="text",
+                value=", ".join(current_list) if current_list else "",
+                placeholder="Run pipeline first to load channel list",
+                size="sm",
+            )
+        row = dbc.Row(
+            [
+                dbc.Label(label_text, width=5, className="small"),
+                dbc.Col(ctrl, width=7),
+            ],
+            className="mb-2",
+        )
+        components.append(row)
+        if tooltip:
+            components.append(tooltip)
+        return components
 
     # --- bool ---------------------------------------------------------------
     if resolved is bool:
-        control: Any = dbc.Checkbox(
+        ctrl = dbc.Checkbox(
             id=input_id,
             value=bool(value) if value is not None else False,
             className="ms-2",
         )
-        return dbc.Row(
+        row = dbc.Row(
             [
-                dbc.Label(field_name, width=5, className="small"),
-                dbc.Col(control, width=7),
+                dbc.Label(label_text, width=5, className="small"),
+                dbc.Col(ctrl, width=7),
             ],
             className="mb-2 align-items-center",
         )
+        components.append(row)
+        if tooltip:
+            components.append(tooltip)
+        return components
 
     # --- int ----------------------------------------------------------------
     if resolved is int:
+        num_attrs = _numeric_attrs(meta)
+        if "step" not in num_attrs:
+            num_attrs["step"] = 1
         ctrl = dbc.Input(
             id=input_id,
             type="number",
-            step=1,
             value=value if value is not None else "",
             size="sm",
+            **num_attrs,
         )
-        return dbc.Row(
+        row = dbc.Row(
             [
-                dbc.Label(field_name, width=5, className="small"),
+                dbc.Label(label_text, width=5, className="small"),
                 dbc.Col(ctrl, width=7),
             ],
             className="mb-2",
         )
+        components.append(row)
+        if tooltip:
+            components.append(tooltip)
+        return components
 
-    # --- float (including Optional[float]) ----------------------------------
-    if resolved is float:
+    # --- Optional[float] with "use default" checkbox -----------------------
+    if is_optional and resolved is float:
+        use_default = value is None
+        checkbox_id: dict[str, str] = {
+            "type": "param-optional-toggle",
+            "instance_id": instance_id,
+            "field": field_name,
+        }
+        check = dbc.Checkbox(
+            id=checkbox_id,
+            value=use_default,
+            label="use default",
+            className="small",
+        )
+        num_attrs = _numeric_attrs(meta)
+        if "step" not in num_attrs:
+            num_attrs["step"] = 0.01
         ctrl = dbc.Input(
             id=input_id,
             type="number",
-            step=0.01,
+            value=value if value is not None else "",
+            disabled=use_default,
+            size="sm",
+            **num_attrs,
+        )
+        row = dbc.Row(
+            [
+                dbc.Label(label_text, width=5, className="small"),
+                dbc.Col([check, ctrl], width=7),
+            ],
+            className="mb-2",
+        )
+        components.append(row)
+        if tooltip:
+            components.append(tooltip)
+        return components
+
+    # --- float (including non-optional) ------------------------------------
+    if resolved is float:
+        num_attrs = _numeric_attrs(meta)
+        if "step" not in num_attrs:
+            num_attrs["step"] = 0.01
+        ctrl = dbc.Input(
+            id=input_id,
+            type="number",
             value=value if value is not None else "",
             size="sm",
+            **num_attrs,
         )
-        return dbc.Row(
+        row = dbc.Row(
             [
-                dbc.Label(field_name, width=5, className="small"),
+                dbc.Label(label_text, width=5, className="small"),
                 dbc.Col(ctrl, width=7),
             ],
             className="mb-2",
         )
+        components.append(row)
+        if tooltip:
+            components.append(tooltip)
+        return components
 
     # --- str or fallback ----------------------------------------------------
     ctrl = dbc.Input(
@@ -136,13 +302,17 @@ def _field_to_input(
         value=str(value) if value is not None else "",
         size="sm",
     )
-    return dbc.Row(
+    row = dbc.Row(
         [
-            dbc.Label(field_name, width=5, className="small"),
+            dbc.Label(label_text, width=5, className="small"),
             dbc.Col(ctrl, width=7),
         ],
         className="mb-2",
     )
+    components.append(row)
+    if tooltip:
+        components.append(tooltip)
+    return components
 
 
 def render_param_editor(
@@ -150,6 +320,8 @@ def render_param_editor(
     instance_id: str | None,
     params_class: type[Any] | None,
     current_values: dict[str, Any],
+    *,
+    available_channels: list[str] | None = None,
 ) -> html.Div:
     """Auto-generate a parameter form for *params_class*.
 
@@ -163,6 +335,10 @@ def render_param_editor(
         Dataclass *type* holding the block parameters, or *None*.
     current_values:
         Dict of current parameter values.
+    available_channels:
+        Optional list of channel names from the last Raw in the pipeline
+        results.  Used by ``list[str]`` fields to populate a multi-select
+        dropdown.
 
     Returns
     -------
@@ -195,15 +371,23 @@ def render_param_editor(
             ]
         )
 
-    rows: list[Any] = []
+    children: list[Any] = []
     for f in fields:
         default = f.default if f.default is not dataclasses.MISSING else None
         val = current_values.get(f.name, default)
-        rows.append(_field_to_input(f, val, instance_id))
+        children.extend(
+            _field_to_input(
+                f,
+                val,
+                instance_id,
+                block_id,
+                available_channels=available_channels,
+            )
+        )
 
     return html.Div(
         [
             html.H6(block_id, className="mb-3"),
-            dbc.Form(rows),
+            dbc.Form(children),
         ]
     )

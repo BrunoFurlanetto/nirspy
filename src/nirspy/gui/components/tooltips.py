@@ -84,6 +84,16 @@ _TOOLTIP_REGISTRY: dict[str, _TooltipEntry] = {
             "Section 4: Statistical Analysis"
         ),
     ),
+    "manual_channel_exclude": _TooltipEntry(
+        description=(
+            "Manually flag channels as bad. Pipeline already pre-processes "
+            "with Scalp Coupling Index — check the QC tab first. "
+            "Use this block only if you want to disable channels manually "
+            "beyond (or instead of) the automatic prune. "
+            "Channels with good SCI can be kept."
+        ),
+        reference="User-driven quality control",
+    ),
 }
 
 

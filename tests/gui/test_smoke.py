@@ -59,7 +59,7 @@ class TestErrorDisplay:
 
 
 class TestTooltips:
-    def test_all_seven_blocks_have_tooltips(self) -> None:
+    def test_all_eight_blocks_have_tooltips(self) -> None:
         from nirspy.gui.components.tooltips import tooltip_for
         for block_id in registry.list_blocks():
             tt = tooltip_for(block_id)
@@ -118,15 +118,15 @@ class TestCatalogTooltipWiring:
         result = render_block_catalog(registry)
         assert "Tooltip" in str(result)
 
-    def test_catalog_has_seven_tooltips(self) -> None:
+    def test_catalog_has_eight_tooltips(self) -> None:
         from nirspy.gui.components.block_catalog import render_block_catalog
         result = render_block_catalog(registry)
-        assert str(result).count("Tooltip(") == 7
+        assert str(result).count("Tooltip(") == 8
 
-    def test_catalog_still_has_seven_items(self) -> None:
+    def test_catalog_still_has_eight_items(self) -> None:
         from nirspy.gui.components.block_catalog import render_block_catalog
         result = render_block_catalog(registry)
-        assert str(result).count("ListGroupItem") == 7
+        assert str(result).count("ListGroupItem") == 8
 
 
 class TestQCRegression:
