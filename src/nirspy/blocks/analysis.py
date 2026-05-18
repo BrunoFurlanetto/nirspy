@@ -99,6 +99,19 @@ class BlockAverageBlock:
             )
 
         # Validate params
+        required = {
+            "tmin": self.params.tmin,
+            "tmax": self.params.tmax,
+            "baseline_tmin": self.params.baseline_tmin,
+            "baseline_tmax": self.params.baseline_tmax,
+        }
+        missing = [name for name, val in required.items() if val is None]
+        if missing:
+            raise ValidationError(
+                f"BlockAverageBlock: required parameter(s) "
+                f"{missing} must not be empty."
+            )
+
         if self.params.baseline_tmin > self.params.baseline_tmax:
             raise ValidationError(
                 f"BlockAverageBlock: baseline_tmin ({self.params.baseline_tmin}) "
