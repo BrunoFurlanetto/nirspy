@@ -190,7 +190,11 @@ class TestParamEditor:
         )
         html_str = str(result)
         for f in fields:
-            assert f.name in html_str
+            if f.name == "per_condition_windows":
+                # Custom widget; check for its switch ID instead
+                assert "cond-window-switch" in html_str
+            else:
+                assert f.name in html_str
 
 
 class TestIOSerialization:
