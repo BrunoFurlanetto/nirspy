@@ -279,9 +279,20 @@ class MNEAdapter:
         try:
             result: dict[str, mne.Evoked] = {}
             for condition in epochs.event_id:
-                evoked = epochs[condition].average()
+                condition_epochs = epochs[condition]
+                if len(condition_epochs) == 0:
+                    continue
+                evoked = condition_epochs.average()
                 result[condition] = evoked
+            if not result:
+                raise MNEOperationError(
+                    "average_epochs() produced no evoked: all conditions "
+                    "had every epoch rejected. Loosen reject_by_amplitude "
+                    "or raise amplitude_threshold."
+                )
             return result
+        except MNEOperationError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise MNEOperationError(
                 f"average_epochs() failed: {exc}", mne_exception=exc
