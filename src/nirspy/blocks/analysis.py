@@ -171,10 +171,14 @@ class BlockAverageBlock:
         evoked_dict = self._adapter.average_epochs(epochs)
 
         # Build metadata with epoch stats
+        skipped_conditions = [
+            cond for cond in epochs.event_id if cond not in evoked_dict
+        ]
         metadata: dict[str, Any] = {
             "conditions": list(evoked_dict.keys()),
             "n_conditions": len(evoked_dict),
             "n_epochs_total": len(epochs.events),
+            "skipped_conditions": skipped_conditions,
             "tmin": self.params.tmin,
             "tmax": self.params.tmax,
         }

@@ -1,4 +1,8 @@
-"""HRF plot component — condition-averaged HbO/HbR with error bands."""
+"""HRF plot component -- condition-averaged HbO/HbR with error bands.
+
+Values are scaled from mol/L to micromolar (uM) for display, following
+standard fNIRS reporting conventions.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +11,12 @@ from typing import Any
 import plotly.graph_objects as go
 from dash import dcc, html
 
-# Conventional colours (Yücel et al., 2021 / project convention)
+# Conventional colours (Yuecel et al., 2021 / project convention)
 _HBO_COLOR = "#d62728"
 _HBR_COLOR = "#1f77b4"
+
+# Scaling factor: mol/L -> micromolar (uM)
+_MOL_TO_MICROMOLAR: float = 1e6
 
 
 def render_hrf_plot(
@@ -17,6 +24,9 @@ def render_hrf_plot(
     selected_conditions: list[str] | None = None,
 ) -> html.Div:
     """Render HRF waveforms (HbO red, HbR blue) per condition.
+
+    Values are scaled to micromolar (uM) for display.  Legend entries
+    use ``Delta uM`` notation.
 
     Parameters
     ----------
@@ -77,8 +87,11 @@ def render_hrf_plot(
             if not idx_list:
                 continue
 
-            mean_signal = np.mean(data[idx_list], axis=0)
-            name = f"{cond} — {label}"
+            mean_signal = (
+                np.mean(data[idx_list], axis=0)
+                * _MOL_TO_MICROMOLAR
+            )
+            name = f"{cond} — {label} ΔμM"
 
             fig.add_trace(
                 go.Scatter(
@@ -95,13 +108,15 @@ def render_hrf_plot(
                 sem = (
                     np.std(data[idx_list], axis=0)
                     / np.sqrt(nave)
+                    * _MOL_TO_MICROMOLAR
                 )
                 upper = (mean_signal + sem).tolist()
                 lower = (mean_signal - sem).tolist()
 
                 fig.add_trace(
                     go.Scatter(
-                        x=times.tolist() + times[::-1].tolist(),
+                        x=times.tolist()
+                        + times[::-1].tolist(),
                         y=upper + lower[::-1],
                         fill="toself",
                         fillcolor=_rgba(color, 0.15),
@@ -114,7 +129,7 @@ def render_hrf_plot(
     fig.update_layout(
         title="HRF — Haemodynamic Response",
         xaxis_title="Time (s)",
-        yaxis_title="Concentration",
+        yaxis_title="Concentration (μM)",
         height=400,
         margin={"l": 60, "r": 20, "t": 40, "b": 40},
         legend={"orientation": "h", "y": -0.2},

@@ -15,6 +15,7 @@ from nirspy.io.converters import (
     nirs_to_snirf,
     snirf_to_nirs,
 )
+from nirspy.io.oxysoft_txt import oxysoft_txt_to_snirf
 from nirspy.io.pipeline_runner import RunResult, run_pipeline
 from nirspy.io.yaml_serializer import dump_pipeline, load_pipeline
 
@@ -28,6 +29,7 @@ __all__ = [
     # converters
     "nirs_to_snirf",
     "snirf_to_nirs",
+    "oxysoft_txt_to_snirf",
     # pivot types
     "MeasurementChannel",
     "NirsData",

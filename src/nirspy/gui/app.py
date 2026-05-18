@@ -36,6 +36,7 @@ def create_app(*, debug: bool = False) -> dash.Dash:
     app.layout = create_layout()
 
     # Import and register callbacks (side-effect import pattern used by Dash)
+    from nirspy.gui.callbacks import converter_callbacks as _cv  # noqa: F401
     from nirspy.gui.callbacks import execution_callbacks as _ex  # noqa: F401
     from nirspy.gui.callbacks import io_callbacks as _io  # noqa: F401
     from nirspy.gui.callbacks import param_callbacks as _pm  # noqa: F401
@@ -43,6 +44,6 @@ def create_app(*, debug: bool = False) -> dash.Dash:
     from nirspy.gui.callbacks import viz_callbacks as _vz  # noqa: F401
 
     # Silence unused import warning
-    _ = (_pc, _io, _pm, _ex, _vz)
+    _ = (_pc, _io, _pm, _ex, _vz, _cv)
 
     return app
