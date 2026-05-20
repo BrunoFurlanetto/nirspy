@@ -19,6 +19,8 @@ from typing import Any
 import dash_bootstrap_components as dbc
 from dash import html
 
+from nirspy.gui.components.param_metadata import metadata_for
+
 
 def read_snirf_condition_names(snirf_path: str | None) -> list[str] | None:
     """Read stim condition names directly from a SNIRF file.
@@ -87,26 +89,47 @@ def _render_row(
     condition: str,
     values: dict[str, float],
 ) -> dbc.Row:
-    """Render one read-only-name row with four numeric window inputs."""
+    """Render one read-only-name row with four numeric window inputs.
+
+    Uses ``debounce=True`` so the value callback fires only on blur /
+    Enter -- this prevents the re-render cycle from resetting the input
+    while the user is still typing.
+
+    Defaults to the **maximum** of the allowed range (via ParamMeta) so
+    the user starts from the top and adjusts downward.
+    """
     name_cell = html.Div(
         html.Span(condition, className="fw-semibold small"),
         className="d-flex align-items-center h-100",
     )
 
     fields = ["tmin", "tmax", "baseline_tmin", "baseline_tmax"]
-    inputs = [
-        dbc.Col(
-            dbc.Input(
-                id=_row_id(instance_id, condition, f),
-                type="number",
-                value=values.get(f, 0),
-                size="sm",
-                step=1.0,
-            ),
-            width=2,
+    inputs: list[dbc.Col] = []
+    for f in fields:
+        meta = metadata_for("block_average", f)
+        attrs: dict[str, Any] = {}
+        default: float = 0.0
+        if meta is not None:
+            if meta.min is not None:
+                attrs["min"] = meta.min
+            if meta.max is not None:
+                attrs["max"] = meta.max
+                default = float(meta.max)
+            if meta.step is not None:
+                attrs["step"] = meta.step
+        inputs.append(
+            dbc.Col(
+                dbc.Input(
+                    id=_row_id(instance_id, condition, f),
+                    type="number",
+                    value=values.get(f, default),
+                    size="sm",
+                    debounce=True,
+                    **attrs,
+                ),
+                width=2,
+            )
         )
-        for f in fields
-    ]
 
     return dbc.Row(
         [dbc.Col(name_cell, width=4)] + inputs,
