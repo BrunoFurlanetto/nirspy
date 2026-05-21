@@ -1,0 +1,59 @@
+site_name: nirspy
+site_description: GUI-first, fNIRS-focused pipeline builder in Python
+site_url: https://brunofurlanetto.github.io/nirspy/
+repo_url: https://github.com/BrunoFurlanetto/nirspy
+repo_name: BrunoFurlanetto/nirspy
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.expand
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            members_order: source
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Tutorials:
+    - Your First Pipeline: tutorials/first-pipeline.md
+  - Reference:
+    - Blocks: reference/blocks.md
+    - Domain: reference/domain.md
+    - Engine: reference/engine.md
+    - CLI: reference/cli.md
+  - Architecture: architecture.md
+  - Roadmap: roadmap.md

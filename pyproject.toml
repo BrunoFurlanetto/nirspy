@@ -100,3 +100,6 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "slow: marks tests as slow (e.g. mkdocs build)",
+]
