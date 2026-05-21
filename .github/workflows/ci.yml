@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -50,3 +51,29 @@ jobs:
           name: coverage-xml
           path: coverage.xml
           if-no-files-found: warn
+
+  publish:
+    name: Publish to PyPI
+    needs: lint-and-test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/nirspy/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Publish to PyPI (Trusted Publisher / OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
