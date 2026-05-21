@@ -74,11 +74,11 @@ class TestUIErrorMessagesLookup:
         message = _resolve_ui_message(exc)
         assert message == UI_ERROR_MESSAGES[EngineError]
 
-    def test_returns_none_for_unregistered_error_type(self) -> None:
-        """A plain NirspyError without a mapping returns None from the resolver."""
+    def test_returns_catchall_for_nirspy_error(self) -> None:
+        """NirspyError has a catch-all entry in UI_ERROR_MESSAGES."""
         exc = NirspyError("base")
         message = _resolve_ui_message(exc)
-        assert message is None
+        assert message == UI_ERROR_MESSAGES[NirspyError]
 
 
 # ---------------------------------------------------------------------------
