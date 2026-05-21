@@ -149,6 +149,29 @@ _PARAM_META_REGISTRY: dict[tuple[str, str], ParamMeta] = {
         label="SNIRF path",
         description="Filesystem path to the .snirf input file.",
     ),
+    # -- SplineMotionCorrection -----------------------------------------------
+    ("spline_motion_correction", "threshold"): ParamMeta(
+        label="Artifact threshold (z-score)",
+        description=(
+            "Samples whose temporal-derivative z-score exceeds this "
+            "value are flagged as motion artifacts."
+        ),
+        reference="Scholkmann et al., 2010",
+        min=1.0,
+        max=10.0,
+        step=0.5,
+    ),
+    ("spline_motion_correction", "spline_order"): ParamMeta(
+        label="Spline order",
+        description=(
+            "Order of the interpolating spline. "
+            "1 = linear, 3 = cubic (recommended), 5 = quintic."
+        ),
+        reference="Scholkmann et al., 2010",
+        min=1,
+        max=5,
+        step=1,
+    ),
     # -- ManualChannelExclude ------------------------------------------------
     ("manual_channel_exclude", "channels"): ParamMeta(
         label="Channels to exclude",
