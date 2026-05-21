@@ -89,12 +89,25 @@ class BlockAverageParams:
     )
 
     def __post_init__(self) -> None:
-        """Coerce raw dicts to ConditionWindow for YAML round-trip."""
+        """Coerce raw dicts to ConditionWindow for YAML round-trip.
+
+        Partial dicts (e.g. only ``tmin`` set) are allowed: any missing field
+        falls back to the corresponding global parameter so the semantics are
+        "override only what you specify, inherit the rest from the block-level
+        defaults".
+        """
         if self.per_condition_windows:
             coerced: dict[str, ConditionWindow] = {}
             for key, val in self.per_condition_windows.items():
                 if isinstance(val, dict):
-                    coerced[key] = ConditionWindow(**val)
+                    merged = {
+                        "tmin": self.tmin,
+                        "tmax": self.tmax,
+                        "baseline_tmin": self.baseline_tmin,
+                        "baseline_tmax": self.baseline_tmax,
+                        **val,
+                    }
+                    coerced[key] = ConditionWindow(**merged)
                 else:
                     coerced[key] = val
             object.__setattr__(self, "per_condition_windows", coerced)

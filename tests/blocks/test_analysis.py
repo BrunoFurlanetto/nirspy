@@ -278,3 +278,69 @@ class TestPerConditionWindows:
         )
         assert isinstance(params.per_condition_windows["A"], ConditionWindow)
         assert params.per_condition_windows["A"].tmin == -1.0
+
+    def test_post_init_partial_dict_only_tmin(self):
+        """Partial dict with only tmin fills missing fields from global defaults."""
+        params = BlockAverageParams(
+            tmin=-2.0,
+            tmax=18.0,
+            baseline_tmin=-2.0,
+            baseline_tmax=0.0,
+            per_condition_windows={"CondA": {"tmin": -3.0}},
+        )
+        window = params.per_condition_windows["CondA"]
+        assert isinstance(window, ConditionWindow)
+        assert window.tmin == -3.0
+        assert window.tmax == 18.0
+        assert window.baseline_tmin == -2.0
+        assert window.baseline_tmax == 0.0
+
+    def test_post_init_partial_dict_only_tmax(self):
+        """Partial dict with only tmax fills missing fields from global defaults."""
+        params = BlockAverageParams(
+            tmin=-2.0,
+            tmax=18.0,
+            baseline_tmin=-2.0,
+            baseline_tmax=0.0,
+            per_condition_windows={"CondB": {"tmax": 25.0}},
+        )
+        window = params.per_condition_windows["CondB"]
+        assert isinstance(window, ConditionWindow)
+        assert window.tmin == -2.0
+        assert window.tmax == 25.0
+        assert window.baseline_tmin == -2.0
+        assert window.baseline_tmax == 0.0
+
+    def test_post_init_empty_dict_per_condition_uses_global_defaults(self):
+        """Empty dict {} for a condition uses all global defaults."""
+        params = BlockAverageParams(
+            tmin=-1.5,
+            tmax=20.0,
+            baseline_tmin=-1.5,
+            baseline_tmax=0.0,
+            per_condition_windows={"CondC": {}},
+        )
+        window = params.per_condition_windows["CondC"]
+        assert isinstance(window, ConditionWindow)
+        assert window.tmin == -1.5
+        assert window.tmax == 20.0
+        assert window.baseline_tmin == -1.5
+        assert window.baseline_tmax == 0.0
+
+    def test_partial_dict_pipeline_does_not_crash(
+        self, raw_haemo_with_events, context
+    ):
+        """Pipeline with partially-filled per_condition_windows runs without error."""
+        params = BlockAverageParams(
+            tmin=-2.0,
+            tmax=18.0,
+            baseline_tmin=-2.0,
+            baseline_tmax=0.0,
+            per_condition_windows={"Tapping": {"tmin": -3.0}},
+        )
+        block = BlockAverageBlock(params=params)
+        result = block.run(context, {"beer_lambert": raw_haemo_with_events})
+        assert result.metadata["per_condition_used"] is True
+        ws = result.metadata["windows_used"]
+        assert ws["Tapping"]["tmin"] == -3.0
+        assert ws["Tapping"]["tmax"] == 18.0
