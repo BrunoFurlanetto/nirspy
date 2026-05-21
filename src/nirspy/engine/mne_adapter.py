@@ -169,6 +169,35 @@ class MNEAdapter:
             ) from exc
 
     # ------------------------------------------------------------------
+    # Motion Correction (v0.2)
+    # ------------------------------------------------------------------
+
+    def tddr(self, raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
+        """Apply Temporal Derivative Distribution Repair (Fishburn et al., 2019).
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with fnirs_od channels.
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Motion-corrected Raw (same channel type).
+
+        Raises
+        ------
+        MNEOperationError
+            When MNE-NIRS raises any exception during TDDR.
+        """
+        try:
+            return mne.preprocessing.nirs.temporal_derivative_distribution_repair(raw)
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"tddr() failed: {exc}", mne_exception=exc
+            ) from exc
+
+        # ------------------------------------------------------------------
     # Quality Control (Etapa 3)
     # ------------------------------------------------------------------
 

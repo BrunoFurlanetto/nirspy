@@ -84,6 +84,15 @@ _TOOLTIP_REGISTRY: dict[str, _TooltipEntry] = {
             "Section 4: Statistical Analysis"
         ),
     ),
+    "tddr": _TooltipEntry(
+        description=(
+            "Temporal Derivative Distribution Repair (TDDR). "
+            "Parameter-free method that removes motion artifacts by "
+            "repairing the temporal derivative distribution of the signal. "
+            "Applied to optical density data."
+        ),
+        reference="Fishburn et al., 2019; MNE-NIRS: temporal_derivative_distribution_repair",
+    ),
     "manual_channel_exclude": _TooltipEntry(
         description=(
             "Manually flag channels as bad. Pipeline already pre-processes "
