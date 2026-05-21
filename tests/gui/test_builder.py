@@ -43,7 +43,7 @@ class TestBlockCatalog:
         result = render_block_catalog(registry)
         html_str = str(result)
         # Tooltips also target catalog-item IDs, so count ListGroupItem occurrences
-        assert html_str.count("ListGroupItem") == 9
+        assert html_str.count("ListGroupItem") == 10
 
     def test_catalog_shows_io_types(self) -> None:
         result = render_block_catalog(registry)

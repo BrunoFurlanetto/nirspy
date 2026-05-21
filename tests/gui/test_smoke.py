@@ -121,12 +121,12 @@ class TestCatalogTooltipWiring:
     def test_catalog_has_eight_tooltips(self) -> None:
         from nirspy.gui.components.block_catalog import render_block_catalog
         result = render_block_catalog(registry)
-        assert str(result).count("Tooltip(") == 9
+        assert str(result).count("Tooltip(") == 10
 
     def test_catalog_still_has_eight_items(self) -> None:
         from nirspy.gui.components.block_catalog import render_block_catalog
         result = render_block_catalog(registry)
-        assert str(result).count("ListGroupItem") == 9
+        assert str(result).count("ListGroupItem") == 10
 
 
 class TestQCRegression:
