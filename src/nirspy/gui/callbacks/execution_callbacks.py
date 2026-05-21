@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import logging
 import tempfile
 import time
 import uuid
@@ -26,7 +27,10 @@ from dash import Input, Output, State, callback, html, no_update
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.exceptions import NirspyError
+from nirspy.engine.exceptions import get_user_message
 from nirspy.gui.components.error_display import render_error
+
+logger = logging.getLogger(__name__)
 
 # Module-level cache for MNE objects -- single-user local app.
 _VIZ_CACHE: dict[str, Any] = {}
@@ -131,8 +135,12 @@ def run_pipeline_callback(
     try:
         pipeline = _build_pipeline_from_state(pipeline_state)
     except (KeyError, NirspyError) as exc:
+        logger.exception("Failed to build pipeline")
         block_id = _extract_block_id(pipeline_state, exc)
-        msg = f"Failed to build pipeline: {exc}"
+        if isinstance(exc, NirspyError):
+            msg = get_user_message(exc)
+        else:
+            msg = f"Failed to build pipeline: {exc}"
         if block_id:
             msg = f"[{block_id}] {msg}"
         return (
@@ -165,8 +173,9 @@ def run_pipeline_callback(
             pipeline, context
         )
     except NirspyError as exc:
+        logger.exception("Pipeline execution failed")
         block_id = getattr(exc, "block_id", None) or ""
-        msg = f"Pipeline execution failed: {exc}"
+        msg = get_user_message(exc)
         if block_id:
             msg = f"[{block_id}] {msg}"
         return (
@@ -175,10 +184,12 @@ def run_pipeline_callback(
             "", False,
         )
     except Exception:  # noqa: BLE001
+        logger.exception("Unexpected error during pipeline execution")
         return (
             no_update, 0, 100, {"display": "none"},
             render_error(
-                "An unexpected error occurred during execution."
+                "An unexpected error occurred. "
+                "Please check the log file for details."
             ),
             True,
             "", False,
