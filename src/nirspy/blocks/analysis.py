@@ -22,6 +22,37 @@ from nirspy.engine.mne_adapter import MNEAdapter
 
 
 @dataclass(frozen=True)
+class ConditionWindow:
+    """Temporal window override for a single condition.
+
+    Each field mirrors the corresponding global parameter in
+    :class:`BlockAverageParams`.  When a condition has an entry in
+    ``per_condition_windows`` these values take precedence over the
+    globals for that condition only.
+    """
+
+    tmin: float
+    tmax: float
+    baseline_tmin: float
+    baseline_tmax: float
+
+
+def _validate_condition_window(name: str, window: ConditionWindow) -> None:
+    """Raise :class:`ValidationError` if *window* has invalid ranges."""
+    if window.tmin >= window.tmax:
+        raise ValidationError(
+            f"ConditionWindow {name!r}: tmin ({window.tmin}) "
+            f"must be < tmax ({window.tmax})."
+        )
+    if window.baseline_tmin > window.baseline_tmax:
+        raise ValidationError(
+            f"ConditionWindow {name!r}: baseline_tmin "
+            f"({window.baseline_tmin}) must be <= baseline_tmax "
+            f"({window.baseline_tmax})."
+        )
+
+
+@dataclass(frozen=True)
 class BlockAverageParams:
     """Parameters for block averaging (HRF computation).
 
@@ -41,6 +72,9 @@ class BlockAverageParams:
         Rejection threshold in mol/L (default 80e-6 = 80 uM).
     pick_conditions:
         List of condition names to include. None = all conditions.
+    per_condition_windows:
+        Per-condition temporal window overrides.  Empty dict (default)
+        uses the global window for every condition.
     """
 
     tmin: float = -2.0
@@ -50,6 +84,20 @@ class BlockAverageParams:
     reject_by_amplitude: bool = True
     amplitude_threshold: float = 80e-6
     pick_conditions: list[str] | None = field(default=None)
+    per_condition_windows: dict[str, ConditionWindow] = field(
+        default_factory=dict,
+    )
+
+    def __post_init__(self) -> None:
+        """Coerce raw dicts to ConditionWindow for YAML round-trip."""
+        if self.per_condition_windows:
+            coerced: dict[str, ConditionWindow] = {}
+            for key, val in self.per_condition_windows.items():
+                if isinstance(val, dict):
+                    coerced[key] = ConditionWindow(**val)
+                else:
+                    coerced[key] = val
+            object.__setattr__(self, "per_condition_windows", coerced)
 
 
 _BA_SPEC = BlockSpec(
@@ -70,6 +118,10 @@ class BlockAverageBlock:
     2. Create epochs (tmin/tmax window, baseline correction)
     3. Optionally reject epochs by amplitude threshold
     4. Average per condition -> dict[str, Evoked]
+
+    When ``per_condition_windows`` is non-empty the block creates one
+    :class:`mne.Epochs` per condition (each with its own window) via
+    :meth:`MNEAdapter.create_epochs_per_condition`.
 
     Invariant: input Raw must have hbo/hbr channels (RAW_HAEMO).
     Raw must have annotations/events; raises ValidationError if none found.
@@ -124,6 +176,11 @@ class BlockAverageBlock:
                 f"must be < tmax ({self.params.tmax})."
             )
 
+
+        # Validate each per-condition window
+        for cond_name, window in self.params.per_condition_windows.items():
+            _validate_condition_window(cond_name, window)
+
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
 
         # Validate channel type
@@ -161,6 +218,18 @@ class BlockAverageBlock:
         else:
             used_event_id = event_id
 
+        # Validate per_condition_windows keys exist in event_id
+        if self.params.per_condition_windows:
+            unknown = (
+                set(self.params.per_condition_windows) - set(used_event_id)
+            )
+            if unknown:
+                raise ValidationError(
+                    f"BlockAverageBlock: per_condition_windows contains "
+                    f"condition(s) {sorted(unknown)} not found in "
+                    f"event_id {sorted(used_event_id.keys())}."
+                )
+
         # Build rejection dict
         reject: dict[str, float] | None = None
         if self.params.reject_by_amplitude:
@@ -169,42 +238,99 @@ class BlockAverageBlock:
                 "hbr": self.params.amplitude_threshold,
             }
 
-        # Create epochs via adapter
-        epochs = self._adapter.create_epochs(
-            raw,
-            tmin=self.params.tmin,
-            tmax=self.params.tmax,
-            baseline_tmin=self.params.baseline_tmin,
-            baseline_tmax=self.params.baseline_tmax,
-            reject=reject,
-            event_id=used_event_id,
-        )
-
-        # Average per condition via adapter
-        evoked_dict = self._adapter.average_epochs(epochs)
-
-        # Build metadata with epoch stats
-        skipped_conditions = [
-            cond for cond in epochs.event_id if cond not in evoked_dict
-        ]
-        metadata: dict[str, Any] = {
-            "conditions": list(evoked_dict.keys()),
-            "n_conditions": len(evoked_dict),
-            "n_epochs_total": len(epochs.events),
-            "skipped_conditions": skipped_conditions,
-            "tmin": self.params.tmin,
-            "tmax": self.params.tmax,
-        }
-
-        # Add per-condition epoch counts
-        for condition in evoked_dict:
-            metadata[f"n_epochs_{condition}"] = len(epochs[condition])
-
-        if epochs.drop_log is not None:
-            n_dropped = sum(
-                1 for log in epochs.drop_log if len(log) > 0
+        # ---- Per-condition path vs legacy single-Epochs path ----
+        if self.params.per_condition_windows:
+            default_window = (
+                self.params.tmin,
+                self.params.tmax,
+                self.params.baseline_tmin,
+                self.params.baseline_tmax,
             )
-            metadata["n_epochs_dropped"] = n_dropped
+            epochs_dict = self._adapter.create_epochs_per_condition(
+                raw,
+                used_event_id,
+                default_window=default_window,
+                per_condition_windows=self.params.per_condition_windows,
+                reject=reject,
+            )
+            evoked_dict = self._adapter.average_epochs(epochs_dict)
+
+            # Metadata for per-condition path
+            windows_used: dict[str, dict[str, float]] = {}
+            n_epochs_total = 0
+            skipped_conditions: list[str] = []
+            metadata: dict[str, Any] = {}
+
+            for cond in used_event_id:
+                if cond in self.params.per_condition_windows:
+                    w = self.params.per_condition_windows[cond]
+                    windows_used[cond] = {
+                        "tmin": w.tmin,
+                        "tmax": w.tmax,
+                        "baseline_tmin": w.baseline_tmin,
+                        "baseline_tmax": w.baseline_tmax,
+                    }
+                else:
+                    windows_used[cond] = {
+                        "tmin": self.params.tmin,
+                        "tmax": self.params.tmax,
+                        "baseline_tmin": self.params.baseline_tmin,
+                        "baseline_tmax": self.params.baseline_tmax,
+                    }
+                if cond in epochs_dict:
+                    n_ep = len(epochs_dict[cond].events)
+                    n_epochs_total += n_ep
+                    metadata[f"n_epochs_{cond}"] = n_ep
+                if cond not in evoked_dict:
+                    skipped_conditions.append(cond)
+
+            metadata.update({
+                "conditions": list(evoked_dict.keys()),
+                "n_conditions": len(evoked_dict),
+                "n_epochs_total": n_epochs_total,
+                "skipped_conditions": skipped_conditions,
+                "tmin": self.params.tmin,
+                "tmax": self.params.tmax,
+                "per_condition_used": True,
+                "windows_used": windows_used,
+            })
+
+        else:
+            # Legacy single-Epochs path
+            epochs = self._adapter.create_epochs(
+                raw,
+                tmin=self.params.tmin,
+                tmax=self.params.tmax,
+                baseline_tmin=self.params.baseline_tmin,
+                baseline_tmax=self.params.baseline_tmax,
+                reject=reject,
+                event_id=used_event_id,
+            )
+            evoked_dict = self._adapter.average_epochs(epochs)
+
+            skipped_conditions = [
+                cond for cond in epochs.event_id
+                if cond not in evoked_dict
+            ]
+            metadata = {
+                "conditions": list(evoked_dict.keys()),
+                "n_conditions": len(evoked_dict),
+                "n_epochs_total": len(epochs.events),
+                "skipped_conditions": skipped_conditions,
+                "tmin": self.params.tmin,
+                "tmax": self.params.tmax,
+            }
+
+            for condition in evoked_dict:
+                metadata[f"n_epochs_{condition}"] = len(
+                    epochs[condition]
+                )
+
+            if epochs.drop_log is not None:
+                n_dropped = sum(
+                    1 for log in epochs.drop_log if len(log) > 0
+                )
+                metadata["n_epochs_dropped"] = n_dropped
 
         return BlockResult(
             data=evoked_dict,

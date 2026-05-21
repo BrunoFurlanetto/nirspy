@@ -9,6 +9,7 @@ import pytest
 from nirspy.blocks.analysis import (
     BlockAverageBlock,
     BlockAverageParams,
+    ConditionWindow,
 )
 from nirspy.domain.exceptions import ValidationError
 from nirspy.domain.execution import ExecutionContext
@@ -163,3 +164,117 @@ class TestBlockAverageBlock:
         result = block.run(context, {"beer_lambert": raw_haemo_with_events})
         assert isinstance(result.data, dict)
         assert len(result.data) > 0
+
+
+class TestPerConditionWindows:
+    """Tests for per-condition temporal windows (T-012)."""
+
+    def test_empty_per_condition_uses_defaults(
+        self, raw_haemo_with_events, context
+    ):
+        """Empty per_condition_windows preserves legacy behaviour."""
+        params = BlockAverageParams(per_condition_windows={})
+        block = BlockAverageBlock(params=params)
+        result = block.run(context, {"beer_lambert": raw_haemo_with_events})
+        assert isinstance(result.data, dict)
+        assert len(result.data) == 2
+        assert "per_condition_used" not in result.metadata
+
+    def test_partial_override(self, raw_haemo_with_events, context):
+        """Override one condition; other uses global defaults."""
+        params = BlockAverageParams(
+            tmin=-2.0,
+            tmax=18.0,
+            baseline_tmin=-2.0,
+            baseline_tmax=0.0,
+            per_condition_windows={
+                "Tapping": ConditionWindow(
+                    tmin=-5.0, tmax=25.0,
+                    baseline_tmin=-5.0, baseline_tmax=0.0,
+                ),
+            },
+        )
+        block = BlockAverageBlock(params=params)
+        result = block.run(context, {"beer_lambert": raw_haemo_with_events})
+        assert result.metadata["per_condition_used"] is True
+        ws = result.metadata["windows_used"]
+        assert ws["Tapping"]["tmin"] == -5.0
+        assert ws["Tapping"]["tmax"] == 25.0
+        # Rest uses global
+        assert ws["Rest"]["tmin"] == -2.0
+        assert ws["Rest"]["tmax"] == 18.0
+
+    def test_full_override(self, raw_haemo_with_events, context):
+        """Override all conditions."""
+        params = BlockAverageParams(
+            per_condition_windows={
+                "Tapping": ConditionWindow(
+                    tmin=-3.0, tmax=20.0,
+                    baseline_tmin=-3.0, baseline_tmax=0.0,
+                ),
+                "Rest": ConditionWindow(
+                    tmin=-1.0, tmax=10.0,
+                    baseline_tmin=-1.0, baseline_tmax=0.0,
+                ),
+            },
+        )
+        block = BlockAverageBlock(params=params)
+        result = block.run(context, {"beer_lambert": raw_haemo_with_events})
+        assert result.metadata["per_condition_used"] is True
+        assert "Tapping" in result.data
+        assert "Rest" in result.data
+
+    def test_raises_on_unknown_condition(
+        self, raw_haemo_with_events, context
+    ):
+        """Raise if per_condition_windows key not in event_id."""
+        params = BlockAverageParams(
+            per_condition_windows={
+                "NonExistent": ConditionWindow(
+                    tmin=-2.0, tmax=18.0,
+                    baseline_tmin=-2.0, baseline_tmax=0.0,
+                ),
+            },
+        )
+        block = BlockAverageBlock(params=params)
+        with pytest.raises(ValidationError, match="per_condition_windows"):
+            block.run(context, {"beer_lambert": raw_haemo_with_events})
+
+    def test_raises_on_bad_condition_window_tmin_tmax(self):
+        """Raise if ConditionWindow has tmin >= tmax."""
+        params = BlockAverageParams(
+            per_condition_windows={
+                "Tapping": ConditionWindow(
+                    tmin=10.0, tmax=5.0,
+                    baseline_tmin=-2.0, baseline_tmax=0.0,
+                ),
+            },
+        )
+        block = BlockAverageBlock(params=params)
+        with pytest.raises(ValidationError, match="tmin"):
+            block.run(None, {"beer_lambert": "fake"})
+
+    def test_raises_on_bad_condition_window_baseline(self):
+        """Raise if ConditionWindow has baseline_tmin > baseline_tmax."""
+        params = BlockAverageParams(
+            per_condition_windows={
+                "Tapping": ConditionWindow(
+                    tmin=-2.0, tmax=18.0,
+                    baseline_tmin=1.0, baseline_tmax=-1.0,
+                ),
+            },
+        )
+        block = BlockAverageBlock(params=params)
+        with pytest.raises(ValidationError, match="baseline_tmin"):
+            block.run(None, {"beer_lambert": "fake"})
+
+    def test_post_init_coerces_dicts(self):
+        """__post_init__ converts raw dicts to ConditionWindow."""
+        params = BlockAverageParams(
+            per_condition_windows={
+                "A": {"tmin": -1.0, "tmax": 10.0,
+                       "baseline_tmin": -1.0, "baseline_tmax": 0.0},
+            },
+        )
+        assert isinstance(params.per_condition_windows["A"], ConditionWindow)
+        assert params.per_condition_windows["A"].tmin == -1.0

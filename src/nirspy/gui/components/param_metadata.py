@@ -96,26 +96,46 @@ _PARAM_META_REGISTRY: dict[tuple[str, str], ParamMeta] = {
     ("block_average", "tmin"): ParamMeta(
         label="Window start",
         unit="s",
-        description="Epoch start relative to event onset.",
-        min=-10,
+        description=(
+            "Epoch start relative to event onset. "
+            "Typical task paradigms: -5 to -30 s pre-stimulus."
+        ),
+        min=-60,
         max=0,
+        step=1.0,
     ),
     ("block_average", "tmax"): ParamMeta(
         label="Window end",
         unit="s",
-        description="Epoch end relative to event onset.",
+        description=(
+            "Epoch end relative to event onset. "
+            "Real task durations: 20-60 s (task) + 20-30 s (baseline)."
+        ),
         min=0,
-        max=60,
+        max=180,
+        step=1.0,
     ),
     ("block_average", "baseline_tmin"): ParamMeta(
         label="Baseline start",
         unit="s",
-        description="Start of the baseline correction window.",
+        description=(
+            "Start of the baseline correction window. "
+            "Typical: -20 to -30 s for long tasks."
+        ),
+        min=-60,
+        max=0,
+        step=1.0,
     ),
     ("block_average", "baseline_tmax"): ParamMeta(
         label="Baseline end",
         unit="s",
-        description="End of the baseline correction window.",
+        description=(
+            "End of the baseline correction window. "
+            "Usually 0 s (onset) or slightly positive."
+        ),
+        min=-60,
+        max=10,
+        step=1.0,
     ),
     ("block_average", "amplitude_threshold"): ParamMeta(
         label="Amplitude reject",

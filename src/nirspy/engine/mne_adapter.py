@@ -7,12 +7,16 @@ concrete blocks.  Additional methods are added per-etapa.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import mne
 import mne.io
 import mne.preprocessing.nirs
 
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
+
+if TYPE_CHECKING:
+    from nirspy.blocks.analysis import ConditionWindow
 
 
 class RawWrapper:
@@ -256,44 +260,112 @@ class MNEAdapter:
                 f"create_epochs() failed: {exc}", mne_exception=exc
             ) from exc
 
+
+    def create_epochs_per_condition(
+        self,
+        raw: mne.io.BaseRaw,
+        event_id: dict[str, int],
+        *,
+        default_window: tuple[float, float, float, float],
+        per_condition_windows: dict[str, ConditionWindow],
+        reject: dict[str, float] | None,
+    ) -> dict[str, mne.Epochs]:
+        """Create one Epochs per condition with per-condition windows.
+
+        MNE does not support mixed temporal windows in a single Epochs.
+        This method loops over conditions, creating a separate Epochs
+        for each using its override or the default_window fallback.
+        """
+        try:
+            events, _auto_event_id = mne.events_from_annotations(
+                raw, verbose=False
+            )
+            result: dict[str, mne.Epochs] = {}
+            for cond, code in event_id.items():
+                mask = events[:, 2] == code
+                cond_events = events[mask]
+                if len(cond_events) == 0:
+                    continue
+                if cond in per_condition_windows:
+                    w = per_condition_windows[cond]
+                    tmin, tmax = w.tmin, w.tmax
+                    bl_tmin, bl_tmax = w.baseline_tmin, w.baseline_tmax
+                else:
+                    tmin, tmax, bl_tmin, bl_tmax = default_window
+                epochs = mne.Epochs(
+                    raw,
+                    cond_events,
+                    event_id={cond: code},
+                    tmin=tmin,
+                    tmax=tmax,
+                    baseline=(bl_tmin, bl_tmax),
+                    reject=reject,
+                    preload=True,
+                    verbose=False,
+                )
+                result[cond] = epochs
+            return result
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"create_epochs_per_condition() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
     def average_epochs(
-        self, epochs: mne.Epochs
+        self,
+        epochs: mne.Epochs | dict[str, mne.Epochs],
     ) -> dict[str, mne.Evoked]:
         """Average epochs per condition, returning dict of Evoked.
 
-        Parameters
-        ----------
-        epochs:
-            MNE Epochs object (preloaded).
-
-        Returns
-        -------
-        dict[str, mne.Evoked]
-            Mapping of condition name to averaged Evoked.
-
-        Raises
-        ------
-        MNEOperationError
-            When MNE raises any exception during averaging.
+        Accepts a single ``mne.Epochs`` (legacy) or a
+        ``dict[str, mne.Epochs]`` from create_epochs_per_condition.
         """
         try:
-            result: dict[str, mne.Evoked] = {}
-            for condition in epochs.event_id:
-                condition_epochs = epochs[condition]
-                if len(condition_epochs) == 0:
-                    continue
-                evoked = condition_epochs.average()
-                result[condition] = evoked
-            if not result:
-                raise MNEOperationError(
-                    "average_epochs() produced no evoked: all conditions "
-                    "had every epoch rejected. Loosen reject_by_amplitude "
-                    "or raise amplitude_threshold."
-                )
-            return result
+            if isinstance(epochs, dict):
+                return self._average_epochs_dict(epochs)
+            return self._average_epochs_single(epochs)
         except MNEOperationError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise MNEOperationError(
                 f"average_epochs() failed: {exc}", mne_exception=exc
             ) from exc
+
+    def _average_epochs_single(
+        self, epochs: mne.Epochs
+    ) -> dict[str, mne.Evoked]:
+        """Average a single Epochs object per condition."""
+        result: dict[str, mne.Evoked] = {}
+        for condition in epochs.event_id:
+            condition_epochs = epochs[condition]
+            if len(condition_epochs) == 0:
+                continue
+            evoked = condition_epochs.average()
+            result[condition] = evoked
+        if not result:
+            raise MNEOperationError(
+                "average_epochs() produced no evoked: all conditions "
+                "had every epoch rejected. Loosen reject_by_amplitude "
+                "or raise amplitude_threshold."
+            )
+        return result
+
+    def _average_epochs_dict(
+        self, epochs_dict: dict[str, mne.Epochs]
+    ) -> dict[str, mne.Evoked]:
+        """Average a dict of per-condition Epochs objects."""
+        result: dict[str, mne.Evoked] = {}
+        for condition, cond_epochs in epochs_dict.items():
+            if len(cond_epochs) == 0:
+                continue
+            evoked = cond_epochs.average()
+            result[condition] = evoked
+        if not result:
+            raise MNEOperationError(
+                "average_epochs() produced no evoked: all conditions "
+                "had every epoch rejected. Loosen reject_by_amplitude "
+                "or raise amplitude_threshold."
+            )
+        return result

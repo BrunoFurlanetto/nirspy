@@ -49,3 +49,126 @@ def update_param(
             break
 
     return state
+
+
+# ---------------------------------------------------------------------------
+# Per-condition windows callbacks (T-012)
+#
+# Conditions are sourced exclusively from the upstream LoadSnirf file.
+# There is no add / remove / rename — the row set is fixed by the SNIRF.
+# ---------------------------------------------------------------------------
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cond-window-row", "instance_id": ALL,
+         "condition": ALL, "field": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_condition_window(
+    values: list[Any],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Update a single tmin/tmax/baseline field within per_condition_windows."""
+    if not ctx.triggered_id:
+        return no_update
+
+    tid = ctx.triggered_id
+    instance_id: str = tid["instance_id"]
+    condition: str = tid["condition"]
+    field_name: str = tid["field"]
+    new_value = ctx.triggered[0]["value"] if ctx.triggered else None
+
+    if field_name not in {"tmin", "tmax", "baseline_tmin", "baseline_tmax"}:
+        return no_update
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] == instance_id:
+            params = dict(entry.get("params", {}))
+            pcw = dict(params.get("per_condition_windows", {}))
+            cond_dict = dict(pcw.get(condition, {}))
+            if new_value is not None and new_value != "":
+                cond_dict[field_name] = float(new_value)
+            pcw[condition] = cond_dict
+            params["per_condition_windows"] = pcw
+            entry["params"] = params
+            break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cond-window-switch", "instance_id": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def toggle_condition_windows(
+    values: list[bool],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Toggle per-condition windows on/off.
+
+    When turning ON we read the condition names from the upstream
+    LoadSnirf file and create one row per condition seeded with the
+    block's global tmin/tmax/baseline values. When turning OFF the dict
+    is cleared and globals apply.
+
+    If no readable SNIRF is reachable, the switch is disabled in the
+    UI and this callback can only ever be fired with ``False`` — but we
+    still guard against an unexpected ON by writing ``{}`` (no rows).
+    """
+    from nirspy.gui.components.condition_windows_editor import (
+        read_snirf_condition_names,
+    )
+
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    is_enabled = ctx.triggered[0]["value"] if ctx.triggered else False
+
+    state = list(pipeline_state)
+
+    discovered: list[str] | None = None
+    for step in state:
+        if step.get("block_id") == "load_snirf":
+            snirf_path = step.get("params", {}).get("path")
+            discovered = read_snirf_condition_names(snirf_path)
+            if discovered:
+                break
+
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        if not is_enabled or not discovered:
+            params["per_condition_windows"] = {}
+        else:
+            existing = params.get("per_condition_windows") or {}
+            defaults = {
+                "tmin": float(params.get("tmin", -2.0) or -2.0),
+                "tmax": float(params.get("tmax", 18.0) or 18.0),
+                "baseline_tmin": float(
+                    params.get("baseline_tmin", -2.0) or -2.0
+                ),
+                "baseline_tmax": float(
+                    params.get("baseline_tmax", 0.0) or 0.0
+                ),
+            }
+            params["per_condition_windows"] = {
+                cond: (existing[cond] if cond in existing else dict(defaults))
+                for cond in discovered
+            }
+        entry["params"] = params
+        break
+
+    return state

@@ -47,18 +47,26 @@ def _build_pipeline_from_state(
         block_cls = registry.get(block_id)
         spec: BlockSpec = block_cls.SPEC  # type: ignore[attr-defined]
 
-        # Instantiate block with params
+        # Instantiate block with params. We deliberately *do not* swallow
+        # TypeError/ValueError here -- silently falling back to a default
+        # block instance was hiding bad user input (e.g. an unknown param
+        # name or a malformed per_condition_windows dict), so the pipeline
+        # ran with stale defaults and the user wondered why their changes
+        # had no effect.
         if (
             spec.params_class is not None
             and dataclasses.is_dataclass(spec.params_class)
             and params_dict
         ):
             try:
-                block_instance = block_cls(  # type: ignore[call-arg]
-                    spec.params_class(**params_dict)
-                )
-            except (TypeError, ValueError):
-                block_instance = block_cls()
+                params_instance = spec.params_class(**params_dict)
+            except (TypeError, ValueError) as exc:
+                raise NirspyError(
+                    f"Invalid parameters for '{block_id}': {exc}"
+                ) from exc
+            block_instance = block_cls(  # type: ignore[call-arg]
+                params_instance
+            )
         else:
             block_instance = block_cls()
 
@@ -176,7 +184,10 @@ def run_pipeline_callback(
             "", False,
         )
 
-    # Cache results for viz callbacks
+    # Cache results for viz callbacks. Clear previous entries so we don't
+    # leak MNE objects (and so the user can never accidentally see stale
+    # results from a previous run).
+    _VIZ_CACHE.clear()
     cache_key = str(uuid.uuid4())
     _VIZ_CACHE[cache_key] = {
         "results": results,
@@ -257,22 +268,30 @@ def _is_evoked(data: Any) -> bool:
 @callback(
     Output("input-file-path", "data"),
     Output("input-file-label", "children"),
+    Output("pipeline-state", "data", allow_duplicate=True),
     Input("upload-input-file", "filename"),
     State("upload-input-file", "contents"),
+    State("pipeline-state", "data"),
     prevent_initial_call=True,
 )
 def store_input_file(
     filename: str | None,
     contents: str | None,
-) -> tuple[Any, Any]:
-    """Store the uploaded SNIRF file to a temp path.
+    pipeline_state: list[dict[str, Any]] | None,
+) -> tuple[Any, Any, Any]:
+    """Persist the uploaded SNIRF and propagate its path into LoadSnirf.
 
-    Dash dcc.Upload delivers file contents as a base64 string.
-    We decode and write to a temporary file so the pipeline can
-    read it via the normal file-based path.
+    The file is decoded from base64, written to a temp location and the
+    resulting path is stored in three places:
+      1. ``input-file-path`` store — read by run_pipeline_callback as a
+         last-resort override.
+      2. The label below the upload button (visual confirmation).
+      3. Every ``load_snirf`` step in ``pipeline-state`` — so downstream
+         callbacks (e.g. per-condition windows reading conditions from
+         the SNIRF) see the path immediately, before any pipeline run.
     """
     if not filename or not contents:
-        return no_update, no_update
+        return no_update, no_update, no_update
 
     content_string = (
         contents.split(",", 1)[1]
@@ -281,7 +300,6 @@ def store_input_file(
     )
     raw_bytes = base64.b64decode(content_string)
 
-    # Write to temp file
     tmp_dir = Path(tempfile.gettempdir()) / "nirspy"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = tmp_dir / filename
@@ -291,4 +309,18 @@ def store_input_file(
         f"Selected: {filename}",
         className="text-success",
     )
-    return str(tmp_path), label
+
+    updated_state: Any = no_update
+    if pipeline_state:
+        new_state = list(pipeline_state)
+        changed = False
+        for entry in new_state:
+            if entry.get("block_id") == "load_snirf":
+                params = dict(entry.get("params", {}))
+                params["path"] = str(tmp_path)
+                entry["params"] = params
+                changed = True
+        if changed:
+            updated_state = new_state
+
+    return str(tmp_path), label, updated_state
