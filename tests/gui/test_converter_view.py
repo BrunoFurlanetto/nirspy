@@ -161,7 +161,7 @@ class TestOnConvert:
         fake = "data:;base64," + base64.b64encode(b"bad").decode()
         status, _dl = on_convert(1, fake, "bad.nirs", "nirs_to_snirf", False)
         assert status.color == "danger"
-        assert "corrupted" in status.children.lower()
+        assert "conversion failed" in status.children.lower()
 
     @patch("nirspy.io.converters.nirs_to_snirf")
     def test_strip_pii_forwarded(self, mock_conv: MagicMock) -> None:

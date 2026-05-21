@@ -28,6 +28,7 @@ from dash import (
 from dash.exceptions import PreventUpdate
 
 from nirspy.domain.exceptions import ConverterError
+from nirspy.engine.exceptions import get_user_message
 from nirspy.gui.components.error_display import render_error
 
 logger = logging.getLogger(__name__)
@@ -163,15 +164,15 @@ def on_convert(
             "Conversion failed: %s", exc, exc_info=True
         )
         return (
-            render_error(str(exc)),
+            render_error(get_user_message(exc)),
             no_update,
         )
     except Exception:
         logger.exception("Unexpected error during conversion")
         return (
             render_error(
-                "An unexpected error occurred during conversion. "
-                "Please check that the file is valid."
+                "An unexpected error occurred. "
+                "Please check the log file for details."
             ),
             no_update,
         )
