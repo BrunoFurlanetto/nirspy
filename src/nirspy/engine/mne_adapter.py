@@ -12,11 +12,40 @@ from typing import TYPE_CHECKING
 import mne
 import mne.io
 import mne.preprocessing.nirs
+import numpy as np
+from scipy.interpolate import UnivariateSpline
 
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 
 if TYPE_CHECKING:
     from nirspy.blocks.analysis import ConditionWindow
+
+
+
+def _label_segments(mask: np.ndarray) -> tuple[np.ndarray, int]:
+    """Label contiguous True segments in a boolean array.
+
+    Returns
+    -------
+    labels:
+        Array of same shape as *mask* where each contiguous True run
+        is assigned a unique positive integer (1, 2, ...).  False
+        entries are 0.
+    n_segments:
+        Total number of contiguous segments found.
+    """
+    labels = np.zeros_like(mask, dtype=int)
+    seg_id = 0
+    in_segment = False
+    for i, val in enumerate(mask):
+        if val and not in_segment:
+            seg_id += 1
+            in_segment = True
+        elif not val:
+            in_segment = False
+        if val:
+            labels[i] = seg_id
+    return labels, seg_id
 
 
 class RawWrapper:
@@ -196,6 +225,126 @@ class MNEAdapter:
             raise MNEOperationError(
                 f"tddr() failed: {exc}", mne_exception=exc
             ) from exc
+
+    def spline_motion_correction(
+        self,
+        raw: mne.io.BaseRaw,
+        threshold: float = 3.0,
+        spline_order: int = 3,
+    ) -> mne.io.BaseRaw:
+        """Apply spline interpolation motion correction (Scholkmann et al., 2010).
+
+        Custom implementation — MNE-NIRS does not provide this method.
+
+        Algorithm
+        ---------
+        1. Compute the temporal derivative of each channel.
+        2. Compute the z-score of the derivative.
+        3. Identify artifact segments where |z| > *threshold*.
+        4. For each artifact segment, fit a ``UnivariateSpline`` of order
+           *spline_order* through the segment and subtract it from the
+           original signal.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with ``fnirs_od`` channels.
+        threshold:
+            Z-score cutoff for artifact detection (default 3.0).
+        spline_order:
+            Spline interpolation order, 1-5 (default 3 = cubic).
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Motion-corrected copy of the Raw object.
+
+        Raises
+        ------
+        MNEOperationError
+            When the correction fails for any reason.
+        """
+        try:
+            corrected = raw.copy()
+            data = corrected.get_data()  # (n_channels, n_times)
+            sfreq = corrected.info["sfreq"]
+            n_times = data.shape[1]
+
+            if n_times < 4:
+                # Too short for meaningful correction — return copy as-is
+                return corrected
+
+            times = np.arange(n_times) / sfreq
+
+            for ch_idx in range(data.shape[0]):
+                signal = data[ch_idx].copy()
+
+                # Step 1: temporal derivative
+                derivative = np.diff(signal)
+                if len(derivative) == 0:
+                    continue
+
+                # Step 2: z-score of derivative
+                d_std = np.std(derivative)
+                if d_std == 0:
+                    continue  # constant signal — nothing to correct
+                d_mean = np.mean(derivative)
+                z_scores = (derivative - d_mean) / d_std
+
+                # Step 3: identify artifact samples
+                artifact_mask = np.abs(z_scores) > threshold
+
+                if not np.any(artifact_mask):
+                    continue  # no artifacts detected
+
+                # Step 4: find contiguous artifact segments and interpolate
+                # Expand mask to original signal indices
+                # derivative[i] corresponds to signal[i+1] - signal[i]
+                # Mark both i and i+1 as artifact-affected
+                signal_mask = np.zeros(n_times, dtype=bool)
+                artifact_indices = np.where(artifact_mask)[0]
+                signal_mask[artifact_indices] = True
+                signal_mask[np.minimum(artifact_indices + 1, n_times - 1)] = True
+
+                # Find contiguous segments
+                labeled, n_segments = _label_segments(signal_mask)
+
+                for seg_id in range(1, n_segments + 1):
+                    seg_indices = np.where(labeled == seg_id)[0]
+                    if len(seg_indices) < 2:
+                        continue
+
+                    start = max(0, seg_indices[0] - 1)
+                    end = min(n_times - 1, seg_indices[-1] + 1)
+                    seg_slice = slice(start, end + 1)
+                    seg_times = times[seg_slice]
+                    seg_signal = signal[seg_slice]
+
+                    # Clamp spline order to available points - 1
+                    k = min(spline_order, len(seg_times) - 1)
+                    if k < 1:
+                        continue
+
+                    spline = UnivariateSpline(
+                        seg_times, seg_signal, k=k, s=0
+                    )
+                    fitted = spline(seg_times)
+
+                    # Subtract spline fit (artifact component) from signal
+                    data[ch_idx, seg_slice] = signal[seg_slice] - fitted + np.mean(
+                        seg_signal
+                    )
+
+            corrected._data = data
+            return corrected
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"spline_motion_correction() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
 
         # ------------------------------------------------------------------
     # Quality Control (Etapa 3)
