@@ -182,6 +182,52 @@ def create_layout() -> dbc.Container:
                             id="condition-selector-container",
                             children=render_condition_selector(None),
                         ),
+                        # Discard-region controls — static; not re-rendered
+                        # by the HRF callback so user state is preserved.
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    dbc.Switch(
+                                        id="hrf-discard-toggle",
+                                        label=(
+                                            "Show discard region "
+                                            "(visual only — does not "
+                                            "affect computation)"
+                                        ),
+                                        value=False,
+                                        className="mt-2",
+                                    ),
+                                    width="auto",
+                                ),
+                                dbc.Col(
+                                    dbc.InputGroup(
+                                        [
+                                            dbc.InputGroupText("t min (s)"),
+                                            dbc.Input(
+                                                id="hrf-discard-tmin",
+                                                type="number",
+                                                value=-5,
+                                                step=0.5,
+                                                style={"maxWidth": "90px"},
+                                            ),
+                                            dbc.InputGroupText("t max (s)"),
+                                            dbc.Input(
+                                                id="hrf-discard-tmax",
+                                                type="number",
+                                                value=5,
+                                                step=0.5,
+                                                style={"maxWidth": "90px"},
+                                            ),
+                                        ],
+                                        size="sm",
+                                    ),
+                                    width="auto",
+                                    id="hrf-discard-trange-col",
+                                ),
+                            ],
+                            className="mb-2 align-items-center",
+                            id="hrf-discard-controls",
+                        ),
                         html.Div(
                             id="hrf-plot-container",
                             children=html.P(

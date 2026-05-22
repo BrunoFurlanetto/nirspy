@@ -1,4 +1,4 @@
-"""Tests for HRF plot uM scaling."""
+"""Tests for HRF plot uM scaling and discard-region overlay."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from nirspy.gui.components.hrf_plot import (
+    _DISCARD_TMAX_DEFAULT,
+    _DISCARD_TMIN_DEFAULT,
     _MOL_TO_MICROMOLAR,
     _rgba,
     render_hrf_plot,
@@ -167,6 +169,94 @@ class TestHRFPlotExcludesBads:
         fig = graph.figure
         trace_names = [t.name for t in fig.data if t.name]
         assert len(trace_names) == 2  # HbO + HbR
+
+class TestHRFDiscardRegion:
+    """Discard-region overlay: visual-only vrect controlled by toggle."""
+
+    def _make_evoked(self) -> MagicMock:
+        evoked = MagicMock()
+        evoked.times = np.linspace(-10, 20, 100)
+        evoked.ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        evoked.data = np.full((2, 100), 1e-6)
+        evoked.nave = 1
+        evoked.info = {}
+        return evoked
+
+    def _get_shapes(self, result: Any) -> list[Any]:
+        """Extract layout shapes (vrects) from figure."""
+        graph = _find_graph(result)
+        assert graph is not None
+        fig = graph.figure
+        return list(fig.layout.shapes) if fig.layout.shapes else []
+
+    def test_toggle_off_no_vrect(self) -> None:
+        """Toggle OFF: no vrect shape added to figure."""
+        evoked = self._make_evoked()
+        result = render_hrf_plot(
+            {"cond1": evoked},
+            discard_toggle=False,
+            discard_tmin=-5.0,
+            discard_tmax=5.0,
+        )
+        shapes = self._get_shapes(result)
+        rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+        assert len(rect_shapes) == 0, (
+            "Expected no vrect when toggle is OFF"
+        )
+
+    def test_toggle_on_vrect_present_with_correct_bounds(self) -> None:
+        """Toggle ON: vrect present with x0=tmin, x1=tmax."""
+        evoked = self._make_evoked()
+        tmin, tmax = -5.0, 5.0
+        result = render_hrf_plot(
+            {"cond1": evoked},
+            discard_toggle=True,
+            discard_tmin=tmin,
+            discard_tmax=tmax,
+        )
+        shapes = self._get_shapes(result)
+        rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+        assert len(rect_shapes) == 1, (
+            f"Expected exactly 1 vrect when toggle ON, got {len(rect_shapes)}"
+        )
+        shape = rect_shapes[0]
+        assert shape.x0 == tmin
+        assert shape.x1 == tmax
+
+    def test_invalid_range_tmin_ge_tmax_no_vrect(self) -> None:
+        """tmin >= tmax: guard fires, no vrect added."""
+        evoked = self._make_evoked()
+        for tmin, tmax in [(5.0, -5.0), (0.0, 0.0), (3.0, 2.0)]:
+            result = render_hrf_plot(
+                {"cond1": evoked},
+                discard_toggle=True,
+                discard_tmin=tmin,
+                discard_tmax=tmax,
+            )
+            shapes = self._get_shapes(result)
+            rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+            assert len(rect_shapes) == 0, (
+                f"Expected no vrect for invalid range tmin={tmin} tmax={tmax}"
+            )
+
+    def test_toggle_on_none_inputs_use_defaults(self) -> None:
+        """Toggle ON with None inputs: defaults (-5, 5) applied."""
+        evoked = self._make_evoked()
+        result = render_hrf_plot(
+            {"cond1": evoked},
+            discard_toggle=True,
+            discard_tmin=None,
+            discard_tmax=None,
+        )
+        shapes = self._get_shapes(result)
+        rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+        assert len(rect_shapes) == 1, (
+            "Expected vrect with default tmin/tmax when inputs are None"
+        )
+        shape = rect_shapes[0]
+        assert shape.x0 == _DISCARD_TMIN_DEFAULT
+        assert shape.x1 == _DISCARD_TMAX_DEFAULT
+
 
 # -- Helpers --
 

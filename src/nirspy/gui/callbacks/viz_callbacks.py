@@ -161,14 +161,31 @@ def update_conditions(
     Output("hrf-plot-container", "children"),
     Input("run-results", "data"),
     Input("condition-selector", "value"),
+    Input("hrf-discard-toggle", "value"),
+    Input("hrf-discard-tmin", "value"),
+    Input("hrf-discard-tmax", "value"),
 )
 def update_hrf(
     run_results: dict[str, Any] | None,
     selected_conditions: list[str] | None,
+    discard_toggle: bool | None,
+    discard_tmin: float | None,
+    discard_tmax: float | None,
 ) -> Any:
-    """Render the HRF plot filtered by selected conditions."""
+    """Render the HRF plot filtered by selected conditions.
+
+    The *discard region* overlay (``discard_toggle``, ``discard_tmin``,
+    ``discard_tmax``) is purely visual and does not affect any
+    computation.  Invalid ranges (tmin >= tmax) are silently ignored.
+    """
     results = _get_cached_results(run_results)
     if results is None:
         return render_hrf_plot(None)
     evoked_dict = _find_evoked_dict(results)
-    return render_hrf_plot(evoked_dict, selected_conditions)
+    return render_hrf_plot(
+        evoked_dict,
+        selected_conditions,
+        discard_toggle=bool(discard_toggle),
+        discard_tmin=discard_tmin,
+        discard_tmax=discard_tmax,
+    )
