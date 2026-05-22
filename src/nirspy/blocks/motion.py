@@ -210,6 +210,17 @@ class WaveletParams:
     wavelet: str = "sym8"
     iqr_multiplier: float = 1.5
 
+    def __post_init__(self) -> None:
+        """Validate wavelet name against pywt's supported list (SEC-INFO-04)."""
+        import pywt
+
+        valid = pywt.wavelist()
+        if self.wavelet not in valid:
+            raise ValidationError(
+                f"Unknown wavelet {self.wavelet!r}. "
+                f"Must be one of pywt.wavelist() (e.g. sym8, db4, haar)."
+            )
+
 
 _WAVELET_SPEC = BlockSpec(
     block_id="wavelet_motion_correction",
