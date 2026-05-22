@@ -337,6 +337,11 @@ class MNEAdapter:
                         seg_signal
                     )
 
+            # SEC-INFO-03: validate shape before bypassing MNE setter
+            assert data.shape == corrected.get_data().shape, (
+                f"Shape mismatch after spline correction: "
+                f"{data.shape} vs {corrected.get_data().shape}"
+            )
             corrected._data = data
             return corrected
         except MNEOperationError:
@@ -429,6 +434,11 @@ class MNEAdapter:
                 # pywt.waverec may return array 1 sample longer due to padding
                 data[ch_idx] = reconstructed[:n_times]
 
+            # SEC-INFO-03: validate shape before bypassing MNE setter
+            assert data.shape == corrected.get_data().shape, (
+                f"Shape mismatch after wavelet correction: "
+                f"{data.shape} vs {corrected.get_data().shape}"
+            )
             corrected._data = data
             return corrected
         except MNEOperationError:
