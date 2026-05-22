@@ -56,6 +56,43 @@ def _validate_condition_window(name: str, window: ConditionWindow) -> None:
 
 
 @dataclass(frozen=True)
+class ConditionGroup:
+    """A named group of SNIRF conditions sharing temporal parameters.
+
+    Used by ``BlockAverageParams.per_condition_groups`` to let users
+    aggregate multiple SNIRF condition keys under a custom label with
+    shared tmin/tmax/baseline windows. The label becomes the key in
+    the resulting ``dict[str, Evoked]``.
+    """
+
+    label: str
+    condition_names: list[str]
+    tmin: float
+    tmax: float
+    baseline_tmin: float
+    baseline_tmax: float
+
+
+def _validate_condition_group(name: str, group: ConditionGroup) -> None:
+    """Raise :class:`ValidationError` if *group* has invalid ranges."""
+    if group.tmin >= group.tmax:
+        raise ValidationError(
+            f"ConditionGroup {name!r}: tmin ({group.tmin}) "
+            f"must be < tmax ({group.tmax})."
+        )
+    if group.baseline_tmin > group.baseline_tmax:
+        raise ValidationError(
+            f"ConditionGroup {name!r}: baseline_tmin "
+            f"({group.baseline_tmin}) must be <= baseline_tmax "
+            f"({group.baseline_tmax})."
+        )
+    if not group.condition_names:
+        raise ValidationError(
+            f"ConditionGroup {name!r}: condition_names must not be empty."
+        )
+
+
+@dataclass(frozen=True)
 class BlockAverageParams:
     """Parameters for block averaging (HRF computation).
 
@@ -88,6 +125,9 @@ class BlockAverageParams:
     amplitude_threshold: float = 80e-6
     pick_conditions: list[str] | None = field(default=None)
     per_condition_windows: dict[str, ConditionWindow] = field(
+        default_factory=dict,
+    )
+    per_condition_groups: dict[str, ConditionGroup] = field(
         default_factory=dict,
     )
 
@@ -124,6 +164,24 @@ class BlockAverageParams:
                 else:
                     coerced[key] = val
             object.__setattr__(self, "per_condition_windows", coerced)
+
+        # Mutual exclusion: per_condition_windows OR per_condition_groups (D3)
+        if self.per_condition_windows and self.per_condition_groups:
+            raise ValidationError(
+                "BlockAverageParams: per_condition_windows and "
+                "per_condition_groups are mutually exclusive (D3). "
+                "Use one or the other, not both."
+            )
+
+        # Coerce raw dicts to ConditionGroup for YAML round-trip
+        if self.per_condition_groups:
+            coerced_groups: dict[str, ConditionGroup] = {}
+            for grp_key, grp_val in self.per_condition_groups.items():
+                if isinstance(grp_val, dict):
+                    coerced_groups[grp_key] = ConditionGroup(**grp_val)
+                else:
+                    coerced_groups[grp_key] = grp_val
+            object.__setattr__(self, "per_condition_groups", coerced_groups)
 
 
 _BA_SPEC = BlockSpec(
@@ -264,8 +322,34 @@ class BlockAverageBlock:
                 "hbr": self.params.amplitude_threshold,
             }
 
+        # ---- Per-condition-groups path (T-024) ----
+        if self.params.per_condition_groups:
+            # Validate each group
+            for grp_name, grp in self.params.per_condition_groups.items():
+                _validate_condition_group(grp_name, grp)
+
+            epochs_dict = self._adapter.create_epochs_per_group(
+                raw,
+                groups=self.params.per_condition_groups,
+                reject=reject,
+            )
+            evoked_dict = self._adapter.average_epochs(epochs_dict)
+
+            metadata: dict[str, Any] = {
+                "conditions": list(evoked_dict.keys()),
+                "n_conditions": len(evoked_dict),
+                "n_epochs_total": sum(
+                    len(ep.events) for ep in epochs_dict.values()
+                ),
+                "per_condition_groups_used": True,
+                "tmin": self.params.tmin,
+                "tmax": self.params.tmax,
+            }
+            for grp_label, ep in epochs_dict.items():
+                metadata[f"n_epochs_{grp_label}"] = len(ep.events)
+
         # ---- Per-condition path vs legacy single-Epochs path ----
-        if self.params.per_condition_windows:
+        elif self.params.per_condition_windows:
             default_window = (
                 self.params.tmin,
                 self.params.tmax,
@@ -285,7 +369,7 @@ class BlockAverageBlock:
             windows_used: dict[str, dict[str, float]] = {}
             n_epochs_total = 0
             skipped_conditions: list[str] = []
-            metadata: dict[str, Any] = {}
+            metadata = {}
 
             for cond in used_event_id:
                 if cond in self.params.per_condition_windows:
