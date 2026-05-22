@@ -5,6 +5,7 @@ BlockAverageBlock: computes epoch-averaged HRF per stimulus condition.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -15,6 +16,8 @@ from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.data_types import DataType
 from nirspy.domain.exceptions import ValidationError
 from nirspy.engine.mne_adapter import MNEAdapter
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # BlockAverage
@@ -100,6 +103,9 @@ class BlockAverageParams:
             coerced: dict[str, ConditionWindow] = {}
             for key, val in self.per_condition_windows.items():
                 if isinstance(val, dict):
+                    defaults_used = {
+                        "tmin", "tmax", "baseline_tmin", "baseline_tmax",
+                    } - set(val.keys())
                     merged = {
                         "tmin": self.tmin,
                         "tmax": self.tmax,
@@ -107,6 +113,13 @@ class BlockAverageParams:
                         "baseline_tmax": self.baseline_tmax,
                         **val,
                     }
+                    if defaults_used:
+                        logger.warning(
+                            "per_condition_windows[%r]: filled missing "
+                            "field(s) %s from global defaults.",
+                            key,
+                            sorted(defaults_used),
+                        )
                     coerced[key] = ConditionWindow(**merged)
                 else:
                     coerced[key] = val

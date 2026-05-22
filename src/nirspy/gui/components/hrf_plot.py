@@ -69,15 +69,16 @@ def render_hrf_plot(
         data = evoked.data  # (n_channels, n_times)
         ch_names = evoked.ch_names
         nave = getattr(evoked, "nave", 1)
+        bads = set(evoked.info.get("bads", []))
 
-        # Separate HbO and HbR channels
+        # Separate HbO and HbR channels, excluding bads
         hbo_idx = [
             i for i, ch in enumerate(ch_names)
-            if "hbo" in ch.lower()
+            if "hbo" in ch.lower() and ch not in bads
         ]
         hbr_idx = [
             i for i, ch in enumerate(ch_names)
-            if "hbr" in ch.lower()
+            if "hbr" in ch.lower() and ch not in bads
         ]
 
         for idx_list, color, label in [
