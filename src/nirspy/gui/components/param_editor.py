@@ -309,6 +309,26 @@ def _field_to_input(
             components.append(tooltip)
         return components
 
+    # --- str with choices (dropdown) -----------------------------------------
+    if resolved is str and meta is not None and meta.choices:
+        ctrl = dcc.Dropdown(
+            id=input_id,
+            options=[{"label": c, "value": c} for c in meta.choices],
+            value=str(value) if value is not None else "",
+            clearable=False,
+        )
+        row = dbc.Row(
+            [
+                dbc.Label(label_text, width=5, className="small"),
+                dbc.Col(ctrl, width=7),
+            ],
+            className="mb-2",
+        )
+        components.append(row)
+        if tooltip:
+            components.append(tooltip)
+        return components
+
     # --- str or fallback ----------------------------------------------------
     ctrl = dbc.Input(
         id=input_id,

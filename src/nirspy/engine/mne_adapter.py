@@ -346,6 +346,97 @@ class MNEAdapter:
             ) from exc
 
 
+    def wavelet_motion_correction(
+        self,
+        raw: mne.io.BaseRaw,
+        wavelet: str = "sym8",
+        iqr_multiplier: float = 1.5,
+    ) -> mne.io.BaseRaw:
+        """Apply wavelet-based motion correction (Molavi & Dumont, 2012).
+
+        Custom implementation using PyWavelets (pywt).
+
+        Algorithm
+        ---------
+        1. For each channel: decompose via DWT (pywt.wavedec) to max level.
+        2. For each detail-coefficient level: compute IQR.
+        3. Soft-threshold: threshold = iqr_multiplier * IQR;
+           coefs = sign(coefs) * max(|coefs| - threshold, 0).
+        4. Reconstruct via pywt.waverec.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with ``fnirs_od`` channels.
+        wavelet:
+            Wavelet family name (default "sym8").
+        iqr_multiplier:
+            IQR multiplier for soft-threshold (default 1.5).
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Motion-corrected copy of the Raw object.
+
+        Raises
+        ------
+        MNEOperationError
+            When the correction fails for any reason.
+        """
+        import pywt
+
+        try:
+            corrected = raw.copy()
+            data = corrected.get_data()  # (n_channels, n_times)
+            n_times = data.shape[1]
+
+            if n_times < 4:
+                # Too short for meaningful DWT -- return copy as-is
+                return corrected
+
+            for ch_idx in range(data.shape[0]):
+                signal = data[ch_idx]
+
+                # Step 1: DWT decomposition to max level
+                coeffs = pywt.wavedec(signal, wavelet)
+
+                # Step 2-3: soft-threshold each detail level (skip approx coeffs[0])
+                for level_idx in range(1, len(coeffs)):
+                    detail = coeffs[level_idx]
+                    if len(detail) == 0:
+                        continue
+
+                    # IQR of this detail level
+                    q75 = np.percentile(detail, 75)
+                    q25 = np.percentile(detail, 25)
+                    iqr = q75 - q25
+
+                    if iqr == 0:
+                        continue  # constant level -- no thresholding needed
+
+                    threshold = iqr_multiplier * iqr
+
+                    # Soft-threshold: sign(x) * max(|x| - threshold, 0)
+                    coeffs[level_idx] = np.sign(detail) * np.maximum(
+                        np.abs(detail) - threshold, 0.0
+                    )
+
+                # Step 4: reconstruct
+                reconstructed = pywt.waverec(coeffs, wavelet)
+
+                # pywt.waverec may return array 1 sample longer due to padding
+                data[ch_idx] = reconstructed[:n_times]
+
+            corrected._data = data
+            return corrected
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"wavelet_motion_correction() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
         # ------------------------------------------------------------------
     # Quality Control (Etapa 3)
     # ------------------------------------------------------------------

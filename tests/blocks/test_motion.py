@@ -189,3 +189,101 @@ class TestSplineBlock:
         block = SplineBlock()
         assert block.spec.block_id == "spline_motion_correction"
         assert block.spec.display_name == "Spline Motion Correction"
+
+
+class TestWaveletBlock:
+    """Tests for WaveletBlock (T-017)."""
+
+    def test_wavelet_output_type(self) -> None:
+        """Wavelet output type is RAW_OD (OD in -> OD out)."""
+        from nirspy.blocks.motion import WaveletBlock
+
+        block = WaveletBlock()
+        assert block.spec.input_type == DataType.RAW_OD
+        assert block.spec.output_type == DataType.RAW_OD
+
+    def test_wavelet_preserves_shape(self, raw_od: mne.io.BaseRaw) -> None:
+        """Wavelet preserves n_channels and n_times."""
+        from nirspy.blocks.motion import WaveletBlock
+
+        block = WaveletBlock()
+        ctx = MagicMock()
+        result = block.run(ctx, {"prev": raw_od})
+        assert isinstance(result, BlockResult)
+        out_raw: mne.io.BaseRaw = result.data
+        assert out_raw.info["nchan"] == raw_od.info["nchan"]
+        assert out_raw.n_times == raw_od.n_times
+
+    def test_wavelet_custom_params(self, raw_od: mne.io.BaseRaw) -> None:
+        """Wavelet respects custom wavelet and iqr_multiplier."""
+        from nirspy.blocks.motion import WaveletBlock, WaveletParams
+
+        params = WaveletParams(wavelet="db4", iqr_multiplier=2.0)
+        block = WaveletBlock(params=params)
+        assert block.params.wavelet == "db4"
+        assert block.params.iqr_multiplier == 2.0
+
+        ctx = MagicMock()
+        result = block.run(ctx, {"prev": raw_od})
+        assert isinstance(result, BlockResult)
+        assert result.metadata["wavelet"] == "db4"
+        assert result.metadata["iqr_multiplier"] == 2.0
+
+    def test_wavelet_spec_registration(self) -> None:
+        """Wavelet block is registered in the block registry."""
+        from nirspy.blocks import registry
+        from nirspy.blocks.motion import WaveletBlock
+
+        block_cls = registry.get("wavelet_motion_correction")
+        assert block_cls is WaveletBlock
+
+    def test_wavelet_requires_input(self) -> None:
+        """Wavelet raises ValidationError when inputs are empty."""
+        from nirspy.blocks.motion import WaveletBlock
+
+        block = WaveletBlock()
+        ctx = MagicMock()
+        with pytest.raises(ValidationError, match="requires input data"):
+            block.run(ctx, {})
+
+    def test_wavelet_rejects_wrong_channel_type(
+        self, raw_cw_amplitude: mne.io.BaseRaw
+    ) -> None:
+        """Wavelet raises ValidationError when input is not OD."""
+        from nirspy.blocks.motion import WaveletBlock
+
+        block = WaveletBlock()
+        ctx = MagicMock()
+        with pytest.raises(ValidationError, match="fnirs_od"):
+            block.run(ctx, {"prev": raw_cw_amplitude})
+
+    def test_wavelet_params_dataclass(self) -> None:
+        """WaveletParams is a frozen dataclass with wavelet + iqr_multiplier."""
+        import dataclasses
+
+        from nirspy.blocks.motion import WaveletParams
+
+        assert dataclasses.is_dataclass(WaveletParams)
+        params = WaveletParams()
+        fields = {f.name for f in dataclasses.fields(params)}
+        assert fields == {"wavelet", "iqr_multiplier"}
+        assert params.wavelet == "sym8"
+        assert params.iqr_multiplier == 1.5
+
+    def test_wavelet_metadata(self, raw_od: mne.io.BaseRaw) -> None:
+        """Wavelet result metadata includes method and reference."""
+        from nirspy.blocks.motion import WaveletBlock
+
+        block = WaveletBlock()
+        ctx = MagicMock()
+        result = block.run(ctx, {"prev": raw_od})
+        assert result.metadata["method"] == "wavelet"
+        assert "Molavi" in result.metadata["reference"]
+
+    def test_wavelet_block_id(self) -> None:
+        """Wavelet block_id is 'wavelet_motion_correction'."""
+        from nirspy.blocks.motion import WaveletBlock
+
+        block = WaveletBlock()
+        assert block.spec.block_id == "wavelet_motion_correction"
+        assert block.spec.display_name == "Wavelet Motion Correction"

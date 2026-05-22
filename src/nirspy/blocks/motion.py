@@ -185,3 +185,101 @@ class SplineBlock:
                 "reference": "Scholkmann et al., 2010",
             },
         )
+
+
+# ---------------------------------------------------------------------------
+# Wavelet Motion Correction (Molavi & Dumont, 2012)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WaveletParams:
+    """Parameters for wavelet-based motion correction.
+
+    Attributes
+    ----------
+    wavelet:
+        Wavelet family name passed to ``pywt.wavedec``/``waverec``.
+        Common choices for fNIRS: sym8 (default), db4, db8, coif3, haar.
+    iqr_multiplier:
+        Multiplier applied to the IQR of each detail-coefficient level
+        to compute the soft-threshold.  Lower values = more aggressive
+        correction.
+    """
+
+    wavelet: str = "sym8"
+    iqr_multiplier: float = 1.5
+
+
+_WAVELET_SPEC = BlockSpec(
+    block_id="wavelet_motion_correction",
+    display_name="Wavelet Motion Correction",
+    input_type=DataType.RAW_OD,
+    output_type=DataType.RAW_OD,
+    params_class=WaveletParams,
+    description=(
+        "Wavelet-based motion correction — decomposes signal via DWT, "
+        "soft-thresholds detail coefficients based on IQR, and "
+        "reconstructs (Molavi & Dumont, 2012)."
+    ),
+)
+
+
+class WaveletBlock:
+    """Remove motion artifacts via wavelet decomposition (Molavi & Dumont, 2012).
+
+    Operates on optical density data.  Decomposes each channel with the
+    Discrete Wavelet Transform (DWT), applies an IQR-based soft-threshold
+    to every detail-coefficient level, and reconstructs the cleaned signal.
+    """
+
+    SPEC: ClassVar[BlockSpec] = _WAVELET_SPEC
+
+    def __init__(
+        self,
+        params: WaveletParams | None = None,
+        adapter: MNEAdapter | None = None,
+    ) -> None:
+        self.params: WaveletParams = params or WaveletParams()
+        self._adapter: MNEAdapter = adapter or MNEAdapter()
+
+    @property
+    def spec(self) -> BlockSpec:
+        """Return the static block descriptor."""
+        return _WAVELET_SPEC
+
+    def run(self, context: Any, inputs: dict[str, Any]) -> BlockResult:
+        """Execute wavelet motion correction."""
+        if not inputs:
+            raise ValidationError(
+                "WaveletBlock requires input data. "
+                "It cannot be the first block in a pipeline."
+            )
+
+        raw: mne.io.BaseRaw = next(iter(inputs.values()))
+
+        # Validate channel type
+        ch_types = set(raw.get_channel_types())
+        if "fnirs_od" not in ch_types:
+            raise ValidationError(
+                f"WaveletBlock expects fnirs_od channels, "
+                f"got: {sorted(ch_types)}. "
+                f"Ensure an Optical Density block precedes this one."
+            )
+
+        result_raw = self._adapter.wavelet_motion_correction(
+            raw,
+            wavelet=self.params.wavelet,
+            iqr_multiplier=self.params.iqr_multiplier,
+        )
+
+        return BlockResult(
+            data=result_raw,
+            block_id="wavelet_motion_correction",
+            metadata={
+                "method": "wavelet",
+                "wavelet": self.params.wavelet,
+                "iqr_multiplier": self.params.iqr_multiplier,
+                "reference": "Molavi & Dumont, 2012",
+            },
+        )
