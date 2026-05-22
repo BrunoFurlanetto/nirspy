@@ -8,7 +8,6 @@ pipeline template so the user has a concrete pipeline to follow along.
 from __future__ import annotations
 
 import dataclasses
-import importlib.resources
 import uuid
 from typing import Any
 
@@ -44,31 +43,24 @@ def _load_template_pipeline() -> list[dict[str, Any]]:
     list[dict[str, Any]]
         Pipeline state entries compatible with ``dcc.Store("pipeline-state")``.
     """
-    # Locate the bundled template under examples/pipelines/
-    try:
-        ref = importlib.resources.files("nirspy").joinpath(
-            f"../../examples/pipelines/{_TEMPLATE_NAME}"
-        )
-        raw = ref.read_text(encoding="utf-8")
-    except (FileNotFoundError, TypeError):
-        # Fallback: try reading from a well-known relative path
-        import pathlib
+    # SEC-INFO-02: locate template via absolute paths only (no importlib
+    # traversal with relative '../../' segments).
+    import pathlib
 
-        candidates = [
-            pathlib.Path(__file__).resolve().parents[4]
-            / "examples"
-            / "pipelines"
-            / _TEMPLATE_NAME,
-            pathlib.Path.cwd() / "examples" / "pipelines" / _TEMPLATE_NAME,
-        ]
-        raw_text: str | None = None
-        for p in candidates:
-            if p.is_file():
-                raw_text = p.read_text(encoding="utf-8")
-                break
-        if raw_text is None:
-            return []
-        raw = raw_text
+    candidates = [
+        pathlib.Path(__file__).resolve().parents[4]
+        / "examples"
+        / "pipelines"
+        / _TEMPLATE_NAME,
+        pathlib.Path.cwd() / "examples" / "pipelines" / _TEMPLATE_NAME,
+    ]
+    raw: str | None = None
+    for p in candidates:
+        if p.is_file():
+            raw = p.read_text(encoding="utf-8")
+            break
+    if raw is None:
+        return []
 
     data: dict[str, Any] = yaml.safe_load(raw)
     if not isinstance(data, dict):
