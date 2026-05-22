@@ -1,46 +1,64 @@
-# Best Practices fNIRS Pipeline (Yucel et al., 2021)
-# Full end-to-end: Load -> OD -> QC -> Filter -> mBLL -> Block Average
+# Best Practices fNIRS Pipeline — Block Design (Yucel et al., 2021)
 #
-# This pipeline implements the recommended processing chain for
-# event-related fNIRS studies.
+# Canonical processing chain for event-related fNIRS studies.
+# Each step references the scientific literature justifying its inclusion.
+#
+# Pipeline order:
+#   1. Load SNIRF            — read raw intensity data
+#   2. Optical Density       — convert intensity to OD (log ratio)
+#   3. TDDR                  — motion artifact repair on OD (Fishburn et al., 2019)
+#   4. Bandpass Filter       — 0.01–0.5 Hz on OD (conservative, preserves physiology)
+#   5. Scalp Coupling Index  — channel quality metric (Pollonini et al., 2014)
+#   6. Prune Channels        — remove channels with SCI < 0.5
+#   7. Beer-Lambert          — OD to HbO/HbR concentrations (modified Beer-Lambert law)
+#   8. Block Average         — epoch-averaged HRF with baseline correction
+#
+# References:
+#   Yucel M.A., et al. (2021). Best practices for fNIRS publications. Neurophotonics.
+#   Fishburn F.A., et al. (2019). Temporal Derivative Distribution Repair (TDDR). NeuroImage.
+#   Pollonini L., et al. (2014). Scalp Coupling Index. J. Biomed. Opt.
+#
+# Usage:
+#   nirspy run examples/pipelines/best-practices-block-design.yml \
+#     --input data/sub-01_task-tapping_nirs.snirf --output results/
 
-schema_version: "1"
+description: 'Complete fNIRS pipeline following Best Practices (Yucel et al., 2021):
+  intensity -> OD -> TDDR motion correction -> bandpass filter -> SCI quality check
+  -> prune bad channels -> Beer-Lambert (HbO/HbR) -> block average HRF.'
 name: best-practices-block-design
-description: >
-  Complete fNIRS pipeline following Best Practices (Yucel et al., 2021):
-  intensity -> OD -> SCI quality check -> prune bad channels ->
-  bandpass filter -> Beer-Lambert (HbO/HbR) -> block average HRF.
-
+params:
+  bandpass_filter:
+    h_freq: 0.5
+    l_freq: 0.01
+    method: iir
+  beer_lambert:
+    ppf: 6.0
+  block_average:
+    amplitude_threshold: 8.0e-05
+    baseline_tmax: 0.0
+    baseline_tmin: -5.0
+    reject_by_amplitude: true
+    tmax: 25.0
+    tmin: -5.0
+  load_snirf:
+    path: data/sub-01_task-tapping_nirs.snirf
+  prune_channels:
+    sci_threshold: 0.5
+schema_version: '0.1'
 steps:
-  - block_id: load_snirf
-    params:
-      path: "data/sub-01_task-tapping_nirs.snirf"
-
-  - block_id: optical_density
-    params: {}
-
-  - block_id: scalp_coupling_index
-    params: {}
-
-  - block_id: prune_channels
-    params:
-      sci_threshold: 0.5
-
-  - block_id: bandpass_filter
-    params:
-      l_freq: 0.01
-      h_freq: 0.5
-      method: "iir"
-
-  - block_id: beer_lambert
-    params:
-      ppf: 6.0
-
-  - block_id: block_average
-    params:
-      tmin: -2.0
-      tmax: 18.0
-      baseline_tmin: -2.0
-      baseline_tmax: 0.0
-      reject_by_amplitude: true
-      amplitude_threshold: 0.00008
+- block_id: load_snirf
+  enabled: true
+- block_id: optical_density
+  enabled: true
+- block_id: tddr
+  enabled: true
+- block_id: bandpass_filter
+  enabled: true
+- block_id: scalp_coupling_index
+  enabled: true
+- block_id: prune_channels
+  enabled: true
+- block_id: beer_lambert
+  enabled: true
+- block_id: block_average
+  enabled: true

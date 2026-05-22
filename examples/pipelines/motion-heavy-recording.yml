@@ -1,0 +1,87 @@
+# Motion-Heavy Recording Pipeline
+#
+# Aggressive motion correction chain: TDDR + Spline + Wavelet.
+# Designed for data with frequent/severe motion artifacts — common in:
+#   - Pediatric studies (infants, toddlers, young children)
+#   - Clinical populations with involuntary movements
+#   - Ecological/naturalistic paradigms (walking, conversation, VR)
+#   - Poorly controlled recording environments
+#
+# The three motion correction methods are complementary:
+#   - TDDR repairs the temporal derivative distribution (global, fast)
+#   - Spline interpolation targets sharp transient artifacts (threshold-based)
+#   - Wavelet soft-thresholding removes residual broadband noise
+#
+# Pipeline order:
+#   1. Load SNIRF
+#   2. Optical Density
+#   3. TDDR                  — first pass: global repair (Fishburn et al., 2019)
+#   4. Spline                — second pass: transient artifacts (Scholkmann et al., 2010)
+#                              threshold=4.0 z-score, cubic spline
+#   5. Wavelet               — third pass: residual noise (Molavi & Dumont, 2012)
+#                              sym8 wavelet, IQR multiplier=1.5
+#   6. Bandpass Filter       — 0.01–0.5 Hz (conservative, after all motion correction)
+#   7. Scalp Coupling Index  — channel quality check
+#   8. Prune Channels        — SCI threshold 0.5
+#   9. Beer-Lambert          — OD to HbO/HbR
+#  10. Block Average         — epoch-averaged HRF
+#
+# References:
+#   Fishburn F.A., et al. (2019). TDDR. NeuroImage.
+#   Scholkmann F., et al. (2010). Spline interpolation. Physiol. Meas.
+#   Molavi B. & Dumont G.A. (2012). Wavelet motion correction. Physiol. Meas.
+#   Yucel M.A., et al. (2021). Best practices for fNIRS publications.
+#
+# Usage:
+#   nirspy run examples/pipelines/motion-heavy-recording.yml \
+#     --input data/sub-01_task-motor_nirs.snirf --output results/
+
+description: 'Aggressive motion correction pipeline: TDDR + Spline + Wavelet. For
+  recordings with frequent motion artifacts (pediatric, ecological, clinical).'
+name: motion-heavy-recording
+params:
+  bandpass_filter:
+    h_freq: 0.5
+    l_freq: 0.01
+    method: iir
+  beer_lambert:
+    ppf: 6.0
+  block_average:
+    amplitude_threshold: 8.0e-05
+    baseline_tmax: 0.0
+    baseline_tmin: -5.0
+    reject_by_amplitude: true
+    tmax: 25.0
+    tmin: -5.0
+  load_snirf:
+    path: data/sub-01_task-motor_nirs.snirf
+  prune_channels:
+    sci_threshold: 0.5
+  spline_motion_correction:
+    spline_order: 3
+    threshold: 4.0
+  wavelet_motion_correction:
+    iqr_multiplier: 1.5
+    wavelet: sym8
+schema_version: '0.1'
+steps:
+- block_id: load_snirf
+  enabled: true
+- block_id: optical_density
+  enabled: true
+- block_id: tddr
+  enabled: true
+- block_id: spline_motion_correction
+  enabled: true
+- block_id: wavelet_motion_correction
+  enabled: true
+- block_id: bandpass_filter
+  enabled: true
+- block_id: scalp_coupling_index
+  enabled: true
+- block_id: prune_channels
+  enabled: true
+- block_id: beer_lambert
+  enabled: true
+- block_id: block_average
+  enabled: true

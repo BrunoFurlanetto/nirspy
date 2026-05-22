@@ -1,0 +1,60 @@
+# Resting-State Connectivity Pipeline — Preview (v0.2)
+#
+# Full preprocessing for resting-state fNIRS recordings.
+# Produces clean HbO/HbR time series ready for external connectivity analysis.
+#
+# NOTE: Connectivity matrix computation (correlation, coherence, graph metrics)
+# will be available in v0.3 when the GLM block is introduced.  For now, export
+# the preprocessed data and use an external tool (e.g., MNE-Connectivity,
+# nilearn, or custom scripts) for connectivity analysis.
+#
+# Pipeline order:
+#   1. Load SNIRF            — read raw intensity data
+#   2. Optical Density       — convert intensity to OD
+#   3. TDDR                  — motion artifact repair (Fishburn et al., 2019)
+#   4. Bandpass Filter       — 0.01–0.1 Hz (resting-state: tighter high cutoff
+#                              to isolate low-frequency hemodynamic oscillations)
+#   5. Scalp Coupling Index  — channel quality metric (Pollonini et al., 2014)
+#   6. Prune Channels        — remove channels with SCI < 0.5
+#   7. Beer-Lambert          — OD to HbO/HbR concentrations
+#
+# No BlockAverage — resting state has no events to epoch around.
+#
+# References:
+#   Yucel M.A., et al. (2021). Best practices for fNIRS publications.
+#   Fishburn F.A., et al. (2019). TDDR. NeuroImage.
+#
+# Usage:
+#   nirspy run examples/pipelines/resting-state-connectivity.yml \
+#     --input data/sub-01_task-rest_nirs.snirf --output results/
+
+description: 'Resting-state preprocessing pipeline. Produces clean HbO/HbR time series.
+  Connectivity analysis (correlation, coherence) planned for v0.3 (GLM block).'
+name: resting-state-connectivity
+params:
+  bandpass_filter:
+    h_freq: 0.1
+    l_freq: 0.01
+    method: iir
+  beer_lambert:
+    ppf: 6.0
+  load_snirf:
+    path: data/sub-01_task-rest_nirs.snirf
+  prune_channels:
+    sci_threshold: 0.5
+schema_version: '0.1'
+steps:
+- block_id: load_snirf
+  enabled: true
+- block_id: optical_density
+  enabled: true
+- block_id: tddr
+  enabled: true
+- block_id: bandpass_filter
+  enabled: true
+- block_id: scalp_coupling_index
+  enabled: true
+- block_id: prune_channels
+  enabled: true
+- block_id: beer_lambert
+  enabled: true
