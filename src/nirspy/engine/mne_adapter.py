@@ -6,6 +6,7 @@ concrete blocks.  Additional methods are added per-etapa.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 if TYPE_CHECKING:
     from nirspy.blocks.analysis import ConditionWindow
 
+logger = logging.getLogger(__name__)
 
 
 def _label_segments(mask: np.ndarray) -> tuple[np.ndarray, int]:
@@ -585,16 +587,31 @@ class MNEAdapter:
     def average_epochs(
         self,
         epochs: mne.Epochs | dict[str, mne.Epochs],
+        *,
+        filter_bads: bool = True,
     ) -> dict[str, mne.Evoked]:
         """Average epochs per condition, returning dict of Evoked.
 
         Accepts a single ``mne.Epochs`` (legacy) or a
         ``dict[str, mne.Epochs]`` from create_epochs_per_condition.
+
+        Parameters
+        ----------
+        epochs:
+            Single Epochs or dict of per-condition Epochs.
+        filter_bads:
+            When True (default), channels listed in ``info['bads']``
+            are dropped from each returned Evoked.  Set to False to
+            preserve all channels (e.g. for QC dashboards).
         """
         try:
             if isinstance(epochs, dict):
-                return self._average_epochs_dict(epochs)
-            return self._average_epochs_single(epochs)
+                result = self._average_epochs_dict(epochs)
+            else:
+                result = self._average_epochs_single(epochs)
+            if filter_bads:
+                result = self._drop_bads_from_evoked(result)
+            return result
         except MNEOperationError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -638,3 +655,33 @@ class MNEAdapter:
                 "or raise amplitude_threshold."
             )
         return result
+
+    @staticmethod
+    def _drop_bads_from_evoked(
+        evoked_dict: dict[str, mne.Evoked],
+    ) -> dict[str, mne.Evoked]:
+        """Drop channels listed in info['bads'] from each Evoked.
+
+        Returns a new dict; the original Evoked objects are copied so
+        the caller retains access to the unfiltered data if needed.
+        """
+        filtered: dict[str, mne.Evoked] = {}
+        for condition, evoked in evoked_dict.items():
+            bads = evoked.info.get("bads", [])
+            if bads:
+                n_bads = len(bads)
+                logger.debug(
+                    "average_epochs filter_bads: dropping %d bad channel(s) "
+                    "from condition %r: %s",
+                    n_bads,
+                    condition,
+                    bads,
+                )
+                evoked_clean = evoked.copy()
+                evoked_clean.pick(
+                    picks="all", exclude="bads",
+                )
+                filtered[condition] = evoked_clean
+            else:
+                filtered[condition] = evoked
+        return filtered
