@@ -74,11 +74,8 @@ def _build_pipeline_from_state(
         else:
             block_instance = block_cls()
 
-        # Override enabled flag on spec if needed
-        if not enabled:
-            object.__setattr__(
-                block_instance.spec, "enabled", False
-            )
+        # Override enabled flag on spec (always — toggling back to True must propagate)
+        object.__setattr__(block_instance.spec, "enabled", enabled)
 
         steps.append(block_instance)
 
