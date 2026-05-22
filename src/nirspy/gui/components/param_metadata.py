@@ -189,8 +189,8 @@ _PARAM_META_REGISTRY: dict[tuple[str, str], ParamMeta] = {
         label="IQR multiplier",
         description=(
             "Multiplier for the interquartile range (IQR) used to "
-            "compute the soft-threshold. Lower values = more aggressive "
-            "correction."
+            "compute the soft-threshold. Higher values remove more "
+            "detail coefficients (stronger smoothing)."
         ),
         reference="Molavi & Dumont, 2012",
         min=0.5,
