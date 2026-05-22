@@ -19,7 +19,7 @@ from scipy.interpolate import UnivariateSpline
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 
 if TYPE_CHECKING:
-    from nirspy.blocks.analysis import ConditionWindow
+    from nirspy.blocks.analysis import ConditionGroup, ConditionWindow
 
 logger = logging.getLogger(__name__)
 
@@ -593,6 +593,78 @@ class MNEAdapter:
         except Exception as exc:  # noqa: BLE001
             raise MNEOperationError(
                 f"create_epochs_per_condition() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
+    def create_epochs_per_group(
+        self,
+        raw: mne.io.BaseRaw,
+        groups: dict[str, ConditionGroup],
+        *,
+        reject: dict[str, float] | None,
+    ) -> dict[str, mne.Epochs]:
+        """Create one Epochs per condition group.
+
+        Each group aggregates multiple SNIRF condition keys under a
+        single label. The resulting dict is keyed by group label.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with annotations marking stimulus events.
+        groups:
+            Mapping of group label to :class:`ConditionGroup`.
+        reject:
+            Channel-type rejection thresholds.
+
+        Returns
+        -------
+        dict[str, mne.Epochs]
+            One Epochs per group label.
+        """
+        try:
+            events, auto_event_id = mne.events_from_annotations(
+                raw, verbose=False
+            )
+            result: dict[str, mne.Epochs] = {}
+            for label, group in groups.items():
+                # Build subset event_id for this group
+                subset_event_id = {
+                    cond: auto_event_id[cond]
+                    for cond in group.condition_names
+                    if cond in auto_event_id
+                }
+                if not subset_event_id:
+                    logger.warning(
+                        "create_epochs_per_group: group %r has no matching "
+                        "conditions in event_id. Skipping.",
+                        label,
+                    )
+                    continue
+                # Filter events to only include this group
+                valid_codes = set(subset_event_id.values())
+                mask = np.isin(events[:, 2], list(valid_codes))
+                group_events = events[mask]
+                if len(group_events) == 0:
+                    continue
+                epochs = mne.Epochs(
+                    raw,
+                    group_events,
+                    event_id=subset_event_id,
+                    tmin=group.tmin,
+                    tmax=group.tmax,
+                    baseline=(group.baseline_tmin, group.baseline_tmax),
+                    reject=reject,
+                    preload=True,
+                    verbose=False,
+                )
+                result[label] = epochs
+            return result
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"create_epochs_per_group() failed: {exc}",
                 mne_exception=exc,
             ) from exc
 
