@@ -16,6 +16,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import logging
+import os
 import tempfile
 import time
 import uuid
@@ -310,7 +311,9 @@ def store_input_file(
 
     tmp_dir = Path(tempfile.gettempdir()) / "nirspy"
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = tmp_dir / filename
+    # SEC-INFO-01: sanitize filename to prevent path traversal
+    safe_name = os.path.basename(filename)
+    tmp_path = tmp_dir / safe_name
     tmp_path.write_bytes(raw_bytes)
 
     label = html.Small(
