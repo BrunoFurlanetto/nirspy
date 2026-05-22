@@ -296,6 +296,51 @@ class TestLayoutIntegration:
             assert cid in html_str, f"Missing {cid}"
 
 
+class TestEnabledToggle:
+    """Regression tests for toggle on/off bug (T-012 hotfix).
+
+    The conditional ``if not enabled`` guard never reset spec.enabled back to
+    True when a block was re-enabled, leaving the ClassVar permanently False
+    after the first toggle-off.  The fix writes the flag unconditionally.
+    """
+
+    def test_disabled_block_has_spec_enabled_false(self) -> None:
+        state = [_make_entry("optical_density", enabled=False)]
+        pipeline = _build_pipeline_from_state(state)
+        assert pipeline.steps[0].spec.enabled is False
+
+    def test_enabled_block_has_spec_enabled_true(self) -> None:
+        state = [_make_entry("optical_density", enabled=True)]
+        pipeline = _build_pipeline_from_state(state)
+        assert pipeline.steps[0].spec.enabled is True
+
+    def test_toggle_off_then_on_propagates_true(self) -> None:
+        """Simulate: run1 (disabled) then run2 (enabled) must see enabled=True."""
+        state_off = [_make_entry("optical_density", enabled=False)]
+        pipeline_off = _build_pipeline_from_state(state_off)
+        assert pipeline_off.steps[0].spec.enabled is False
+
+        # Second build — user toggled back on
+        state_on = [_make_entry("optical_density", enabled=True)]
+        pipeline_on = _build_pipeline_from_state(state_on)
+        assert pipeline_on.steps[0].spec.enabled is True
+
+    def test_two_blocks_same_type_last_write_wins_classvar(self) -> None:
+        """Document known ClassVar limitation: two instances of the same block type
+        share the same spec object.  The last write in _build_pipeline_from_state
+        wins for both references.  This is a known limitation flagged for follow-up
+        (independent per-instance enabled state requires instance-level spec).
+        """
+        state = [
+            _make_entry("bandpass_filter", enabled=True),
+            _make_entry("bandpass_filter", enabled=False),
+        ]
+        pipeline = _build_pipeline_from_state(state)
+        # Both steps share the ClassVar spec — last written value (False) wins.
+        assert pipeline.steps[0].spec.enabled is False
+        assert pipeline.steps[1].spec.enabled is False
+
+
 class TestImportSanity:
     def test_all_5c_importable(self) -> None:
         import nirspy.gui.callbacks.execution_callbacks  # noqa: F401

@@ -91,3 +91,101 @@ class TestTDDRBlock:
         block = TDDRBlock()
         assert block.spec.block_id == "tddr"
         assert block.spec.display_name == "TDDR Motion Correction"
+
+
+class TestSplineBlock:
+    """Tests for SplineBlock (T-016)."""
+
+    def test_spline_output_type(self) -> None:
+        """Spline output type is RAW_OD (OD in -> OD out)."""
+        from nirspy.blocks.motion import SplineBlock
+
+        block = SplineBlock()
+        assert block.spec.input_type == DataType.RAW_OD
+        assert block.spec.output_type == DataType.RAW_OD
+
+    def test_spline_preserves_shape(self, raw_od: mne.io.BaseRaw) -> None:
+        """Spline preserves n_channels and n_times."""
+        from nirspy.blocks.motion import SplineBlock
+
+        block = SplineBlock()
+        ctx = MagicMock()
+        result = block.run(ctx, {"prev": raw_od})
+        assert isinstance(result, BlockResult)
+        out_raw: mne.io.BaseRaw = result.data
+        assert out_raw.info["nchan"] == raw_od.info["nchan"]
+        assert out_raw.n_times == raw_od.n_times
+
+    def test_spline_custom_params(self, raw_od: mne.io.BaseRaw) -> None:
+        """Spline respects custom threshold and spline_order."""
+        from nirspy.blocks.motion import SplineBlock, SplineParams
+
+        params = SplineParams(threshold=5.0, spline_order=2)
+        block = SplineBlock(params=params)
+        assert block.params.threshold == 5.0
+        assert block.params.spline_order == 2
+
+        ctx = MagicMock()
+        result = block.run(ctx, {"prev": raw_od})
+        assert isinstance(result, BlockResult)
+        assert result.metadata["threshold"] == 5.0
+        assert result.metadata["spline_order"] == 2
+
+    def test_spline_spec_registration(self) -> None:
+        """Spline block is registered in the block registry."""
+        from nirspy.blocks import registry
+        from nirspy.blocks.motion import SplineBlock
+
+        block_cls = registry.get("spline_motion_correction")
+        assert block_cls is SplineBlock
+
+    def test_spline_requires_input(self) -> None:
+        """Spline raises ValidationError when inputs are empty."""
+        from nirspy.blocks.motion import SplineBlock
+
+        block = SplineBlock()
+        ctx = MagicMock()
+        with pytest.raises(ValidationError, match="requires input data"):
+            block.run(ctx, {})
+
+    def test_spline_rejects_wrong_channel_type(
+        self, raw_cw_amplitude: mne.io.BaseRaw
+    ) -> None:
+        """Spline raises ValidationError when input is not OD."""
+        from nirspy.blocks.motion import SplineBlock
+
+        block = SplineBlock()
+        ctx = MagicMock()
+        with pytest.raises(ValidationError, match="fnirs_od"):
+            block.run(ctx, {"prev": raw_cw_amplitude})
+
+    def test_spline_params_dataclass(self) -> None:
+        """SplineParams is a frozen dataclass with threshold + spline_order."""
+        import dataclasses
+
+        from nirspy.blocks.motion import SplineParams
+
+        assert dataclasses.is_dataclass(SplineParams)
+        params = SplineParams()
+        fields = {f.name for f in dataclasses.fields(params)}
+        assert fields == {"threshold", "spline_order"}
+        assert params.threshold == 3.0
+        assert params.spline_order == 3
+
+    def test_spline_metadata(self, raw_od: mne.io.BaseRaw) -> None:
+        """Spline result metadata includes method and reference."""
+        from nirspy.blocks.motion import SplineBlock
+
+        block = SplineBlock()
+        ctx = MagicMock()
+        result = block.run(ctx, {"prev": raw_od})
+        assert result.metadata["method"] == "spline"
+        assert "Scholkmann" in result.metadata["reference"]
+
+    def test_spline_block_id(self) -> None:
+        """Spline block_id is 'spline_motion_correction'."""
+        from nirspy.blocks.motion import SplineBlock
+
+        block = SplineBlock()
+        assert block.spec.block_id == "spline_motion_correction"
+        assert block.spec.display_name == "Spline Motion Correction"

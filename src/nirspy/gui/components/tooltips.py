@@ -93,6 +93,16 @@ _TOOLTIP_REGISTRY: dict[str, _TooltipEntry] = {
         ),
         reference="Fishburn et al., 2019; MNE-NIRS: temporal_derivative_distribution_repair",
     ),
+    "spline_motion_correction": _TooltipEntry(
+        description=(
+            "Spline interpolation motion correction (Scholkmann et al., 2010). "
+            "Detects artifacts via z-score of the temporal derivative and "
+            "interpolates affected windows with cubic spline. "
+            "Parameters: threshold (z-score cutoff, default 3.0), "
+            "spline_order (default 3)."
+        ),
+        reference="Scholkmann et al., 2010",
+    ),
     "manual_channel_exclude": _TooltipEntry(
         description=(
             "Manually flag channels as bad. Pipeline already pre-processes "
