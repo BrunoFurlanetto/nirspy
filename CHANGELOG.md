@@ -7,6 +7,29 @@ versionamento por [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-22
+
+### Added
+- **T-015 — Motion Correction: TDDR** (PR #25): `TDDRBlock` delegando a `mne_nirs.signal_enhancement.temporal_derivative_distribution_repair` (Fishburn et al., 2019).
+- **T-016 — Motion Correction: Spline** (PR #28): `SplineBlock` + `SplineParams` (threshold z-score, spline_order), implementação custom em `MNEAdapter.spline_motion_correction` (Scholkmann et al., 2010).
+- **T-017 — Motion Correction: Wavelet** (PR #29): `WaveletBlock` + `WaveletParams` (wavelet, iqr_multiplier), DWT via PyWavelets, implementação custom em `MNEAdapter.wavelet_motion_correction` (Molavi & Dumont, 2012). Validação de wavelet via `pywt.wavelist()`.
+- **T-018 — Pipeline Templates** (PR #30): 3 YAMLs em `examples/pipelines/` (best-practices block design atualizado, resting-state-connectivity preview, motion-heavy-recording). Job CI `templates-smoke` gated por label `run-templates`. 9 integration tests parametrizados.
+- **T-019 — Documentação mkdocs-material** (PR #26): site em `https://brunofurlanetto.github.io/nirspy/`, landing + getting-started + tutorial + reference auto-gerada. Workflow `docs.yml` para deploy automático.
+- **T-020 — Mensagens de erro humanizadas** (PR #27): 13 subclasses de `NirspyError`, `UI_ERROR_MESSAGES` completo em EN (ADR-018), `get_user_message()` MRO-based, integração GUI execution + converter callbacks.
+- **T-021 — Tutorial guiado na GUI** (PR #31): overlay modal sequencial com 5 passos, dbc.Switch + navegação, `assets/tutorial.css`.
+- **ADR-024 — Filter bads no adapter** (PR #32): `MNEAdapter.average_epochs(*, filter_bads=True)` + `_drop_bads_from_evoked()` helper. Default True.
+- **T-022 — Prune channels telemetry** (PR #33): metadata `n_bads_total`, `n_channels_total`, `fraction_bads` em `PruneChannelsBlock.run`, warning quando fração excede `bad_fraction_warning` (default 0.5).
+- HRF plot: vrect overlay de região descartável (toggle + tmin/tmax), exclusão de bads do cálculo da média HRF.
+
+### Changed
+- `best-practices-block-design.yml`: reordenação científica (TDDR + Bandpass antes de SCI/Prune/BeerLambert), schema 0.1, baseline expandido (tmin -5, tmax 25).
+- Sanitização de filenames em `store_input_file` via `os.path.basename` (SEC-INFO-01).
+- Tutorial template loading sem `importlib.resources` traversal — usa `Path(__file__).resolve()` + cwd candidates (SEC-INFO-02).
+- `MNEAdapter` motion correction: assert de shape antes de assign em `corrected._data` (SEC-INFO-03).
+
+### Fixed
+- mypy 3.10: `_label_segments` em `mne_adapter.py` agora declara `np.ndarray[Any, Any]` (CI fix).
+
 ## [0.1.0] - 2026-05-21
 
 ### Added
