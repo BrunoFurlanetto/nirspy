@@ -103,6 +103,18 @@ _TOOLTIP_REGISTRY: dict[str, _TooltipEntry] = {
         ),
         reference="Scholkmann et al., 2010",
     ),
+    "wavelet_motion_correction": _TooltipEntry(
+        description=(
+            "Wavelet-based motion correction (Molavi & Dumont, 2012). "
+            "Decomposes signal via Discrete Wavelet Transform (DWT), "
+            "soft-thresholds detail coefficients based on IQR, "
+            "and reconstructs. Parameters: wavelet family (default sym8), "
+            "IQR multiplier (default 1.5)."
+        ),
+        reference=(
+            "Molavi & Dumont, 2012, Physiological Measurement"
+        ),
+    ),
     "manual_channel_exclude": _TooltipEntry(
         description=(
             "Manually flag channels as bad. Pipeline already pre-processes "
