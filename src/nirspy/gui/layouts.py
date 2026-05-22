@@ -43,6 +43,14 @@ def create_layout() -> dbc.Container:
                         "text-muted small ms-3 d-none d-md-inline"
                     ),
                 ),
+                dbc.Button(
+                    "Tutorial",
+                    id="btn-start-tutorial",
+                    color="light",
+                    size="sm",
+                    className="ms-auto",
+                    outline=True,
+                ),
             ],
             fluid=True,
         ),
@@ -253,19 +261,27 @@ def create_layout() -> dbc.Container:
         className="mt-3",
     )
 
-    # Hidden stores for pipeline state + download + results
+    # Hidden stores for pipeline state + download + results + tutorial
     stores = html.Div(
         [
             dcc.Store(id="pipeline-state", data=[]),
             dcc.Store(id="selected-block", data=None),
             dcc.Store(id="run-results", data=None),
             dcc.Store(id="input-file-path", data=None),
+            dcc.Store(
+                id="tutorial-store",
+                data={"active": False, "step": 0},
+            ),
+            dcc.Store(id="tutorial-highlight-target", data=""),
             dcc.Download(id="download-pipeline"),
         ]
     )
 
+    # Tutorial modal container (populated dynamically by callbacks)
+    tutorial_container = html.Div(id="tutorial-modal-container")
+
     return dbc.Container(
-        [navbar, body, viz_tabs, stores],
+        [navbar, body, viz_tabs, stores, tutorial_container],
         fluid=True,
         className="px-0",
     )
