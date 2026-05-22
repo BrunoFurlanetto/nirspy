@@ -8,6 +8,7 @@ Two blocks for channel quality assessment:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
@@ -17,6 +18,8 @@ from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.data_types import DataType
 from nirspy.domain.exceptions import ValidationError
 from nirspy.engine.mne_adapter import MNEAdapter
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # ScalpCouplingIndex
@@ -108,9 +111,13 @@ class PruneChannelsParams:
     sci_threshold:
         Channels with SCI below this value are marked as bads.
         Default 0.5 per Pollonini et al. (2014).
+    bad_fraction_warning:
+        Emit a warning when the fraction of bad channels exceeds
+        this value.  Default 0.5 (50%).
     """
 
     sci_threshold: float = 0.5
+    bad_fraction_warning: float = 0.5
 
 
 _PRUNE_SPEC = BlockSpec(
@@ -222,12 +229,34 @@ class PruneChannelsBlock:
 
         raw_copy.info["bads"] = new_bads
 
+        # Telemetry: compute bad-channel fraction and warn if high
+        n_channels_total = len(raw_copy.ch_names)
+        n_bads_total = len(new_bads)
+        fraction_bads = (
+            n_bads_total / n_channels_total if n_channels_total > 0 else 0.0
+        )
+
+        if fraction_bads > self.params.bad_fraction_warning:
+            logger.warning(
+                "PruneChannelsBlock: %.0f%% of channels marked as bad "
+                "(%d / %d). Results may have low quality. Consider "
+                "lowering sci_threshold (currently %.2f) or inspecting "
+                "signal quality.",
+                fraction_bads * 100,
+                n_bads_total,
+                n_channels_total,
+                self.params.sci_threshold,
+            )
+
         return BlockResult(
             data=raw_copy,
             block_id=_PRUNE_SPEC.block_id,
             metadata={
                 "pruned_channels": bads,
                 "n_pruned": len(bads),
+                "n_bads_total": n_bads_total,
+                "n_channels_total": n_channels_total,
+                "fraction_bads": fraction_bads,
                 "sci_threshold": self.params.sci_threshold,
                 "sci_values": sci_values,
             },

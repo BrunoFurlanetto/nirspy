@@ -6,17 +6,50 @@ concrete blocks.  Additional methods are added per-etapa.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import mne
 import mne.io
 import mne.preprocessing.nirs
+import numpy as np
+from scipy.interpolate import UnivariateSpline
 
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 
 if TYPE_CHECKING:
     from nirspy.blocks.analysis import ConditionWindow
+
+logger = logging.getLogger(__name__)
+
+
+def _label_segments(
+    mask: np.ndarray[Any, Any],
+) -> tuple[np.ndarray[Any, Any], int]:
+    """Label contiguous True segments in a boolean array.
+
+    Returns
+    -------
+    labels:
+        Array of same shape as *mask* where each contiguous True run
+        is assigned a unique positive integer (1, 2, ...).  False
+        entries are 0.
+    n_segments:
+        Total number of contiguous segments found.
+    """
+    labels = np.zeros_like(mask, dtype=int)
+    seg_id = 0
+    in_segment = False
+    for i, val in enumerate(mask):
+        if val and not in_segment:
+            seg_id += 1
+            in_segment = True
+        elif not val:
+            in_segment = False
+        if val:
+            labels[i] = seg_id
+    return labels, seg_id
 
 
 class RawWrapper:
@@ -169,6 +202,256 @@ class MNEAdapter:
             ) from exc
 
     # ------------------------------------------------------------------
+    # Motion Correction (v0.2)
+    # ------------------------------------------------------------------
+
+    def tddr(self, raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
+        """Apply Temporal Derivative Distribution Repair (Fishburn et al., 2019).
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with fnirs_od channels.
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Motion-corrected Raw (same channel type).
+
+        Raises
+        ------
+        MNEOperationError
+            When MNE-NIRS raises any exception during TDDR.
+        """
+        try:
+            return mne.preprocessing.nirs.temporal_derivative_distribution_repair(raw)
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"tddr() failed: {exc}", mne_exception=exc
+            ) from exc
+
+    def spline_motion_correction(
+        self,
+        raw: mne.io.BaseRaw,
+        threshold: float = 3.0,
+        spline_order: int = 3,
+    ) -> mne.io.BaseRaw:
+        """Apply spline interpolation motion correction (Scholkmann et al., 2010).
+
+        Custom implementation — MNE-NIRS does not provide this method.
+
+        Algorithm
+        ---------
+        1. Compute the temporal derivative of each channel.
+        2. Compute the z-score of the derivative.
+        3. Identify artifact segments where |z| > *threshold*.
+        4. For each artifact segment, fit a ``UnivariateSpline`` of order
+           *spline_order* through the segment and subtract it from the
+           original signal.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with ``fnirs_od`` channels.
+        threshold:
+            Z-score cutoff for artifact detection (default 3.0).
+        spline_order:
+            Spline interpolation order, 1-5 (default 3 = cubic).
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Motion-corrected copy of the Raw object.
+
+        Raises
+        ------
+        MNEOperationError
+            When the correction fails for any reason.
+        """
+        try:
+            corrected = raw.copy()
+            data = corrected.get_data()  # (n_channels, n_times)
+            sfreq = corrected.info["sfreq"]
+            n_times = data.shape[1]
+
+            if n_times < 4:
+                # Too short for meaningful correction — return copy as-is
+                return corrected
+
+            times = np.arange(n_times) / sfreq
+
+            for ch_idx in range(data.shape[0]):
+                signal = data[ch_idx].copy()
+
+                # Step 1: temporal derivative
+                derivative = np.diff(signal)
+                if len(derivative) == 0:
+                    continue
+
+                # Step 2: z-score of derivative
+                d_std = np.std(derivative)
+                if d_std == 0:
+                    continue  # constant signal — nothing to correct
+                d_mean = np.mean(derivative)
+                z_scores = (derivative - d_mean) / d_std
+
+                # Step 3: identify artifact samples
+                artifact_mask = np.abs(z_scores) > threshold
+
+                if not np.any(artifact_mask):
+                    continue  # no artifacts detected
+
+                # Step 4: find contiguous artifact segments and interpolate
+                # Expand mask to original signal indices
+                # derivative[i] corresponds to signal[i+1] - signal[i]
+                # Mark both i and i+1 as artifact-affected
+                signal_mask = np.zeros(n_times, dtype=bool)
+                artifact_indices = np.where(artifact_mask)[0]
+                signal_mask[artifact_indices] = True
+                signal_mask[np.minimum(artifact_indices + 1, n_times - 1)] = True
+
+                # Find contiguous segments
+                labeled, n_segments = _label_segments(signal_mask)
+
+                for seg_id in range(1, n_segments + 1):
+                    seg_indices = np.where(labeled == seg_id)[0]
+                    if len(seg_indices) < 2:
+                        continue
+
+                    start = max(0, seg_indices[0] - 1)
+                    end = min(n_times - 1, seg_indices[-1] + 1)
+                    seg_slice = slice(start, end + 1)
+                    seg_times = times[seg_slice]
+                    seg_signal = signal[seg_slice]
+
+                    # Clamp spline order to available points - 1
+                    k = min(spline_order, len(seg_times) - 1)
+                    if k < 1:
+                        continue
+
+                    spline = UnivariateSpline(
+                        seg_times, seg_signal, k=k, s=0
+                    )
+                    fitted = spline(seg_times)
+
+                    # Subtract spline fit (artifact component) from signal
+                    data[ch_idx, seg_slice] = signal[seg_slice] - fitted + np.mean(
+                        seg_signal
+                    )
+
+            # SEC-INFO-03: validate shape before bypassing MNE setter
+            assert data.shape == corrected.get_data().shape, (
+                f"Shape mismatch after spline correction: "
+                f"{data.shape} vs {corrected.get_data().shape}"
+            )
+            corrected._data = data
+            return corrected
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"spline_motion_correction() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
+
+    def wavelet_motion_correction(
+        self,
+        raw: mne.io.BaseRaw,
+        wavelet: str = "sym8",
+        iqr_multiplier: float = 1.5,
+    ) -> mne.io.BaseRaw:
+        """Apply wavelet-based motion correction (Molavi & Dumont, 2012).
+
+        Custom implementation using PyWavelets (pywt).
+
+        Algorithm
+        ---------
+        1. For each channel: decompose via DWT (pywt.wavedec) to max level.
+        2. For each detail-coefficient level: compute IQR.
+        3. Soft-threshold: threshold = iqr_multiplier * IQR;
+           coefs = sign(coefs) * max(|coefs| - threshold, 0).
+        4. Reconstruct via pywt.waverec.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with ``fnirs_od`` channels.
+        wavelet:
+            Wavelet family name (default "sym8").
+        iqr_multiplier:
+            IQR multiplier for soft-threshold (default 1.5).
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Motion-corrected copy of the Raw object.
+
+        Raises
+        ------
+        MNEOperationError
+            When the correction fails for any reason.
+        """
+        import pywt
+
+        try:
+            corrected = raw.copy()
+            data = corrected.get_data()  # (n_channels, n_times)
+            n_times = data.shape[1]
+
+            if n_times < 4:
+                # Too short for meaningful DWT -- return copy as-is
+                return corrected
+
+            for ch_idx in range(data.shape[0]):
+                signal = data[ch_idx]
+
+                # Step 1: DWT decomposition to max level
+                coeffs = pywt.wavedec(signal, wavelet)
+
+                # Step 2-3: soft-threshold each detail level (skip approx coeffs[0])
+                for level_idx in range(1, len(coeffs)):
+                    detail = coeffs[level_idx]
+                    if len(detail) == 0:
+                        continue
+
+                    # IQR of this detail level
+                    q75 = np.percentile(detail, 75)
+                    q25 = np.percentile(detail, 25)
+                    iqr = q75 - q25
+
+                    if iqr == 0:
+                        continue  # constant level -- no thresholding needed
+
+                    threshold = iqr_multiplier * iqr
+
+                    # Soft-threshold: sign(x) * max(|x| - threshold, 0)
+                    coeffs[level_idx] = np.sign(detail) * np.maximum(
+                        np.abs(detail) - threshold, 0.0
+                    )
+
+                # Step 4: reconstruct
+                reconstructed = pywt.waverec(coeffs, wavelet)
+
+                # pywt.waverec may return array 1 sample longer due to padding
+                data[ch_idx] = reconstructed[:n_times]
+
+            # SEC-INFO-03: validate shape before bypassing MNE setter
+            assert data.shape == corrected.get_data().shape, (
+                f"Shape mismatch after wavelet correction: "
+                f"{data.shape} vs {corrected.get_data().shape}"
+            )
+            corrected._data = data
+            return corrected
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"wavelet_motion_correction() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
+        # ------------------------------------------------------------------
     # Quality Control (Etapa 3)
     # ------------------------------------------------------------------
 
@@ -316,16 +599,31 @@ class MNEAdapter:
     def average_epochs(
         self,
         epochs: mne.Epochs | dict[str, mne.Epochs],
+        *,
+        filter_bads: bool = True,
     ) -> dict[str, mne.Evoked]:
         """Average epochs per condition, returning dict of Evoked.
 
         Accepts a single ``mne.Epochs`` (legacy) or a
         ``dict[str, mne.Epochs]`` from create_epochs_per_condition.
+
+        Parameters
+        ----------
+        epochs:
+            Single Epochs or dict of per-condition Epochs.
+        filter_bads:
+            When True (default), channels listed in ``info['bads']``
+            are dropped from each returned Evoked.  Set to False to
+            preserve all channels (e.g. for QC dashboards).
         """
         try:
             if isinstance(epochs, dict):
-                return self._average_epochs_dict(epochs)
-            return self._average_epochs_single(epochs)
+                result = self._average_epochs_dict(epochs)
+            else:
+                result = self._average_epochs_single(epochs)
+            if filter_bads:
+                result = self._drop_bads_from_evoked(result)
+            return result
         except MNEOperationError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -369,3 +667,33 @@ class MNEAdapter:
                 "or raise amplitude_threshold."
             )
         return result
+
+    @staticmethod
+    def _drop_bads_from_evoked(
+        evoked_dict: dict[str, mne.Evoked],
+    ) -> dict[str, mne.Evoked]:
+        """Drop channels listed in info['bads'] from each Evoked.
+
+        Returns a new dict; the original Evoked objects are copied so
+        the caller retains access to the unfiltered data if needed.
+        """
+        filtered: dict[str, mne.Evoked] = {}
+        for condition, evoked in evoked_dict.items():
+            bads = evoked.info.get("bads", [])
+            if bads:
+                n_bads = len(bads)
+                logger.debug(
+                    "average_epochs filter_bads: dropping %d bad channel(s) "
+                    "from condition %r: %s",
+                    n_bads,
+                    condition,
+                    bads,
+                )
+                evoked_clean = evoked.copy()
+                evoked_clean.pick(
+                    picks="all", exclude="bads",
+                )
+                filtered[condition] = evoked_clean
+            else:
+                filtered[condition] = evoked
+        return filtered

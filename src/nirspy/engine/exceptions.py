@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from nirspy.domain.exceptions import NirspyError
+from nirspy.domain.exceptions import (
+    ConverterError,
+    DomainError,
+    ExecutionError,
+    NirsDataError,
+    NirsParseError,
+    NirspyError,
+    NirsWriteError,
+    SnirfParseError,
+    SnirfWriteError,
+    ValidationError,
+)
 
 
 class EngineError(NirspyError):
@@ -36,12 +47,94 @@ class AdapterError(EngineError):
 
 
 # ---------------------------------------------------------------------------
-# Human-friendly error messages for the GUI layer
+# Human-friendly error messages for the GUI layer (ADR-018: EN)
 # ---------------------------------------------------------------------------
 
 UI_ERROR_MESSAGES: dict[type[NirspyError], str] = {
-    AdapterError: "Erro ao carregar dados. Verifique o arquivo SNIRF.",
-    MNEOperationError: "Erro no processamento fNIRS. Veja o log para detalhes.",
-    SnirfLoadError: "Arquivo SNIRF inválido ou corrompido. Verifique o caminho e o formato.",
-    EngineError: "Erro interno do processamento. Consulte o log para detalhes.",
+    # Engine errors
+    SnirfLoadError: (
+        "Could not load the SNIRF file. "
+        "Please check that the file exists and is not corrupted."
+    ),
+    MNEOperationError: (
+        "An error occurred during signal processing. "
+        "Try adjusting the block parameters or check the log for details."
+    ),
+    AdapterError: (
+        "An internal processing error occurred. "
+        "Please check the log file for details."
+    ),
+    EngineError: (
+        "An internal engine error occurred. "
+        "Please check the log file for details."
+    ),
+    # Domain errors
+    ValidationError: (
+        "Pipeline validation failed. "
+        "Check the type compatibility between consecutive blocks."
+    ),
+    ExecutionError: (
+        "Pipeline execution failed. "
+        "Check that input data is valid and block parameters are correct."
+    ),
+    DomainError: (
+        "A domain error occurred. "
+        "Please check your pipeline configuration."
+    ),
+    # Converter errors
+    NirsParseError: (
+        "Could not read the .nirs file. "
+        "Please check that it is a valid HOMER .nirs file."
+    ),
+    NirsWriteError: (
+        "Could not write the .nirs file. "
+        "Please check disk space and write permissions."
+    ),
+    SnirfParseError: (
+        "Could not read the .snirf file. "
+        "Please check that it is a valid SNIRF (HDF5) file."
+    ),
+    SnirfWriteError: (
+        "Could not write the .snirf file. "
+        "Please check disk space and write permissions."
+    ),
+    NirsDataError: (
+        "The data structure is invalid or inconsistent. "
+        "Please check that the file contains valid fNIRS data."
+    ),
+    ConverterError: (
+        "File conversion failed. "
+        "Please check that the input file is valid and try again."
+    ),
+    # Catch-all for NirspyError
+    NirspyError: (
+        "An unexpected error occurred. "
+        "Please check the log file for details."
+    ),
 }
+
+
+def get_user_message(exc: NirspyError) -> str:
+    """Look up a human-friendly message for an exception.
+
+    Walks the exception's MRO to find the most specific entry in
+    :data:`UI_ERROR_MESSAGES`.  Falls back to the generic NirspyError
+    message if nothing matches.
+
+    Parameters
+    ----------
+    exc:
+        Any NirspyError subclass instance.
+
+    Returns
+    -------
+    str
+        User-facing message in English, no stack trace.
+    """
+    for cls in type(exc).__mro__:
+        if cls in UI_ERROR_MESSAGES:
+            return UI_ERROR_MESSAGES[cls]
+    return (
+        "An unexpected error occurred. "
+        "Please check the log file for details."
+    )

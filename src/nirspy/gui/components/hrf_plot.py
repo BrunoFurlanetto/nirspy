@@ -18,15 +18,29 @@ _HBR_COLOR = "#1f77b4"
 # Scaling factor: mol/L -> micromolar (uM)
 _MOL_TO_MICROMOLAR: float = 1e6
 
+# Discard-region overlay defaults (seconds)
+_DISCARD_TMIN_DEFAULT: float = -5.0
+_DISCARD_TMAX_DEFAULT: float = 5.0
+
 
 def render_hrf_plot(
     evoked_dict: dict[str, Any] | None = None,
     selected_conditions: list[str] | None = None,
+    discard_toggle: bool = False,
+    discard_tmin: float | None = None,
+    discard_tmax: float | None = None,
 ) -> html.Div:
     """Render HRF waveforms (HbO red, HbR blue) per condition.
 
     Values are scaled to micromolar (uM) for display.  Legend entries
     use ``Delta uM`` notation.
+
+    An optional *discard region* overlay can be shown as a semi-transparent
+    red rectangle between ``discard_tmin`` and ``discard_tmax``.  This is
+    **purely visual** — it does not affect baseline correction or the
+    BlockAverage computation in any way.  It is intended to help the user
+    identify time windows that should be excluded when interpreting the
+    waveform (e.g. a pre-stimulus baseline artifact window).
 
     Parameters
     ----------
@@ -34,6 +48,14 @@ def render_hrf_plot(
         Mapping ``{condition_name: mne.Evoked}``.
     selected_conditions:
         Subset of condition names to display.
+    discard_toggle:
+        Whether to show the discard region overlay.
+    discard_tmin:
+        Left boundary of the discard region (seconds).
+        Defaults to ``-5`` when ``None``.
+    discard_tmax:
+        Right boundary of the discard region (seconds).
+        Defaults to ``5`` when ``None``.
 
     Returns
     -------
@@ -69,15 +91,16 @@ def render_hrf_plot(
         data = evoked.data  # (n_channels, n_times)
         ch_names = evoked.ch_names
         nave = getattr(evoked, "nave", 1)
+        bads = set(evoked.info.get("bads", []))
 
-        # Separate HbO and HbR channels
+        # Separate HbO and HbR channels, excluding bads
         hbo_idx = [
             i for i, ch in enumerate(ch_names)
-            if "hbo" in ch.lower()
+            if "hbo" in ch.lower() and ch not in bads
         ]
         hbr_idx = [
             i for i, ch in enumerate(ch_names)
-            if "hbr" in ch.lower()
+            if "hbr" in ch.lower() and ch not in bads
         ]
 
         for idx_list, color, label in [
@@ -125,6 +148,23 @@ def render_hrf_plot(
                         hoverinfo="skip",
                     )
                 )
+
+    # Discard-region overlay — purely visual, no data impact
+    if discard_toggle:
+        t0 = discard_tmin if discard_tmin is not None else _DISCARD_TMIN_DEFAULT
+        t1 = discard_tmax if discard_tmax is not None else _DISCARD_TMAX_DEFAULT
+        if t0 < t1:
+            fig.add_vrect(
+                x0=t0,
+                x1=t1,
+                fillcolor="rgba(255,0,0,0.15)",
+                line_width=0,
+                layer="below",
+                annotation_text="ignore range",
+                annotation_position="top left",
+                annotation_font_size=11,
+                annotation_font_color="rgba(200,0,0,0.7)",
+            )
 
     fig.update_layout(
         title="HRF — Haemodynamic Response",

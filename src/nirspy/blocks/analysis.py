@@ -5,6 +5,7 @@ BlockAverageBlock: computes epoch-averaged HRF per stimulus condition.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -15,6 +16,8 @@ from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.data_types import DataType
 from nirspy.domain.exceptions import ValidationError
 from nirspy.engine.mne_adapter import MNEAdapter
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # BlockAverage
@@ -89,12 +92,35 @@ class BlockAverageParams:
     )
 
     def __post_init__(self) -> None:
-        """Coerce raw dicts to ConditionWindow for YAML round-trip."""
+        """Coerce raw dicts to ConditionWindow for YAML round-trip.
+
+        Partial dicts (e.g. only ``tmin`` set) are allowed: any missing field
+        falls back to the corresponding global parameter so the semantics are
+        "override only what you specify, inherit the rest from the block-level
+        defaults".
+        """
         if self.per_condition_windows:
             coerced: dict[str, ConditionWindow] = {}
             for key, val in self.per_condition_windows.items():
                 if isinstance(val, dict):
-                    coerced[key] = ConditionWindow(**val)
+                    defaults_used = {
+                        "tmin", "tmax", "baseline_tmin", "baseline_tmax",
+                    } - set(val.keys())
+                    merged = {
+                        "tmin": self.tmin,
+                        "tmax": self.tmax,
+                        "baseline_tmin": self.baseline_tmin,
+                        "baseline_tmax": self.baseline_tmax,
+                        **val,
+                    }
+                    if defaults_used:
+                        logger.warning(
+                            "per_condition_windows[%r]: filled missing "
+                            "field(s) %s from global defaults.",
+                            key,
+                            sorted(defaults_used),
+                        )
+                    coerced[key] = ConditionWindow(**merged)
                 else:
                     coerced[key] = val
             object.__setattr__(self, "per_condition_windows", coerced)

@@ -32,6 +32,7 @@ dependencies = [
     "click>=8.1",
     "scipy>=1.10",
     "h5py>=3.0",
+    "PyWavelets>=1.4",
 ]
 
 [project.optional-dependencies]
@@ -86,6 +87,11 @@ ignore_missing_imports = true
 module = ["h5py", "h5py.*", "scipy", "scipy.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# pywt (PyWavelets) does not ship py.typed or stubs.
+module = ["pywt", "pywt.*"]
+ignore_missing_imports = true
+
 
 [[tool.mypy.overrides]]
 # Dash and dash-bootstrap-components do not ship py.typed or stubs.
@@ -100,3 +106,6 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "slow: marks tests as slow (e.g. mkdocs build)",
+]

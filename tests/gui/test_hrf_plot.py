@@ -1,4 +1,4 @@
-"""Tests for HRF plot uM scaling."""
+"""Tests for HRF plot uM scaling and discard-region overlay."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import numpy as np
 
 from nirspy.gui.components.hrf_plot import (
+    _DISCARD_TMAX_DEFAULT,
+    _DISCARD_TMIN_DEFAULT,
     _MOL_TO_MICROMOLAR,
     _rgba,
     render_hrf_plot,
@@ -86,6 +88,174 @@ class TestHRFMicromolarScaling:
 
     def test_rgba_helper(self) -> None:
         assert _rgba("#d62728", 0.15) == "rgba(214,39,40,0.15)"
+
+
+
+class TestHRFPlotExcludesBads:
+    """Regression: bads in evoked.info must not contribute to plotted mean."""
+
+    def _make_evoked_with_bads(self) -> MagicMock:
+        """Create Evoked with 4 HbO + 4 HbR channels, 2 HbO marked bad."""
+        evoked = MagicMock()
+        evoked.times = np.linspace(-2, 10, 50)
+        evoked.ch_names = [
+            "S1_D1 hbo", "S2_D2 hbo", "S3_D3 hbo", "S4_D4 hbo",
+            "S1_D1 hbr", "S2_D2 hbr", "S3_D3 hbr", "S4_D4 hbr",
+        ]
+        # Good channels: small physiological values
+        good_val = 1e-6  # 1 uM
+        # Bad channels: absurdly high values that would dominate the mean
+        bad_val = 1e-3  # 1000 uM -- orders of magnitude above physiology
+
+        data = np.full((8, 50), good_val)
+        data[0, :] = bad_val  # S1_D1 hbo -- bad
+        data[1, :] = bad_val  # S2_D2 hbo -- bad
+        evoked.data = data
+
+        # Mark the two bad HbO channels
+        evoked.info = {"bads": ["S1_D1 hbo", "S2_D2 hbo"]}
+        evoked.nave = 10
+        return evoked
+
+    def test_bad_channels_excluded_from_mean(self) -> None:
+        """Mean HbO must reflect only good channels (1 uM), not bads (1000 uM)."""
+        evoked = self._make_evoked_with_bads()
+        result = render_hrf_plot({"cond1": evoked})
+        graph = _find_graph(result)
+        assert graph is not None
+        fig = graph.figure
+
+        # First trace should be HbO mean
+        hbo_trace = fig.data[0]
+        assert "HbO" in hbo_trace.name
+
+        # Expected: good_val * 1e6 = 1.0 uM (not ~500 uM if bads leaked)
+        y_vals = hbo_trace.y
+        assert all(abs(v - 1.0) < 0.01 for v in y_vals), (
+            f"HbO mean should be ~1.0 uM (good channels only), "
+            f"got {y_vals[0]:.2f} uM -- bad channels may be leaking"
+        )
+
+    def test_all_channels_bad_renders_no_trace(self) -> None:
+        """If all HbO channels are bad, no HbO trace should appear."""
+        evoked = MagicMock()
+        evoked.times = np.linspace(-2, 10, 50)
+        evoked.ch_names = ["S1_D1 hbo", "S2_D2 hbo", "S1_D1 hbr"]
+        evoked.data = np.full((3, 50), 1e-6)
+        evoked.info = {"bads": ["S1_D1 hbo", "S2_D2 hbo"]}
+        evoked.nave = 1
+        result = render_hrf_plot({"cond1": evoked})
+        graph = _find_graph(result)
+        assert graph is not None
+        fig = graph.figure
+        # Only HbR trace should exist (no HbO)
+        trace_names = [t.name for t in fig.data if t.name]
+        hbo_names = [n for n in trace_names if "HbO" in n]
+        assert len(hbo_names) == 0, (
+            f"Expected no HbO traces when all HbO are bad, got {hbo_names}"
+        )
+
+    def test_no_bads_key_still_works(self) -> None:
+        """Evoked without bads key should still render all channels."""
+        evoked = MagicMock()
+        evoked.times = np.linspace(-2, 10, 50)
+        evoked.ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        evoked.data = np.full((2, 50), 2e-6)
+        evoked.info = {}  # No "bads" key
+        evoked.nave = 1
+        result = render_hrf_plot({"cond1": evoked})
+        graph = _find_graph(result)
+        assert graph is not None
+        fig = graph.figure
+        trace_names = [t.name for t in fig.data if t.name]
+        assert len(trace_names) == 2  # HbO + HbR
+
+class TestHRFDiscardRegion:
+    """Discard-region overlay: visual-only vrect controlled by toggle."""
+
+    def _make_evoked(self) -> MagicMock:
+        evoked = MagicMock()
+        evoked.times = np.linspace(-10, 20, 100)
+        evoked.ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        evoked.data = np.full((2, 100), 1e-6)
+        evoked.nave = 1
+        evoked.info = {}
+        return evoked
+
+    def _get_shapes(self, result: Any) -> list[Any]:
+        """Extract layout shapes (vrects) from figure."""
+        graph = _find_graph(result)
+        assert graph is not None
+        fig = graph.figure
+        return list(fig.layout.shapes) if fig.layout.shapes else []
+
+    def test_toggle_off_no_vrect(self) -> None:
+        """Toggle OFF: no vrect shape added to figure."""
+        evoked = self._make_evoked()
+        result = render_hrf_plot(
+            {"cond1": evoked},
+            discard_toggle=False,
+            discard_tmin=-5.0,
+            discard_tmax=5.0,
+        )
+        shapes = self._get_shapes(result)
+        rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+        assert len(rect_shapes) == 0, (
+            "Expected no vrect when toggle is OFF"
+        )
+
+    def test_toggle_on_vrect_present_with_correct_bounds(self) -> None:
+        """Toggle ON: vrect present with x0=tmin, x1=tmax."""
+        evoked = self._make_evoked()
+        tmin, tmax = -5.0, 5.0
+        result = render_hrf_plot(
+            {"cond1": evoked},
+            discard_toggle=True,
+            discard_tmin=tmin,
+            discard_tmax=tmax,
+        )
+        shapes = self._get_shapes(result)
+        rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+        assert len(rect_shapes) == 1, (
+            f"Expected exactly 1 vrect when toggle ON, got {len(rect_shapes)}"
+        )
+        shape = rect_shapes[0]
+        assert shape.x0 == tmin
+        assert shape.x1 == tmax
+
+    def test_invalid_range_tmin_ge_tmax_no_vrect(self) -> None:
+        """tmin >= tmax: guard fires, no vrect added."""
+        evoked = self._make_evoked()
+        for tmin, tmax in [(5.0, -5.0), (0.0, 0.0), (3.0, 2.0)]:
+            result = render_hrf_plot(
+                {"cond1": evoked},
+                discard_toggle=True,
+                discard_tmin=tmin,
+                discard_tmax=tmax,
+            )
+            shapes = self._get_shapes(result)
+            rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+            assert len(rect_shapes) == 0, (
+                f"Expected no vrect for invalid range tmin={tmin} tmax={tmax}"
+            )
+
+    def test_toggle_on_none_inputs_use_defaults(self) -> None:
+        """Toggle ON with None inputs: defaults (-5, 5) applied."""
+        evoked = self._make_evoked()
+        result = render_hrf_plot(
+            {"cond1": evoked},
+            discard_toggle=True,
+            discard_tmin=None,
+            discard_tmax=None,
+        )
+        shapes = self._get_shapes(result)
+        rect_shapes = [s for s in shapes if getattr(s, "type", None) == "rect"]
+        assert len(rect_shapes) == 1, (
+            "Expected vrect with default tmin/tmax when inputs are None"
+        )
+        shape = rect_shapes[0]
+        assert shape.x0 == _DISCARD_TMIN_DEFAULT
+        assert shape.x1 == _DISCARD_TMAX_DEFAULT
 
 
 # -- Helpers --

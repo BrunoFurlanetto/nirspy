@@ -84,6 +84,37 @@ _TOOLTIP_REGISTRY: dict[str, _TooltipEntry] = {
             "Section 4: Statistical Analysis"
         ),
     ),
+    "tddr": _TooltipEntry(
+        description=(
+            "Temporal Derivative Distribution Repair (TDDR). "
+            "Parameter-free method that removes motion artifacts by "
+            "repairing the temporal derivative distribution of the signal. "
+            "Applied to optical density data."
+        ),
+        reference="Fishburn et al., 2019; MNE-NIRS: temporal_derivative_distribution_repair",
+    ),
+    "spline_motion_correction": _TooltipEntry(
+        description=(
+            "Spline interpolation motion correction (Scholkmann et al., 2010). "
+            "Detects artifacts via z-score of the temporal derivative and "
+            "interpolates affected windows with cubic spline. "
+            "Parameters: threshold (z-score cutoff, default 3.0), "
+            "spline_order (default 3)."
+        ),
+        reference="Scholkmann et al., 2010",
+    ),
+    "wavelet_motion_correction": _TooltipEntry(
+        description=(
+            "Wavelet-based motion correction (Molavi & Dumont, 2012). "
+            "Decomposes signal via Discrete Wavelet Transform (DWT), "
+            "soft-thresholds detail coefficients based on IQR, "
+            "and reconstructs. Parameters: wavelet family (default sym8), "
+            "IQR multiplier (default 1.5)."
+        ),
+        reference=(
+            "Molavi & Dumont, 2012, Physiological Measurement"
+        ),
+    ),
     "manual_channel_exclude": _TooltipEntry(
         description=(
             "Manually flag channels as bad. Pipeline already pre-processes "

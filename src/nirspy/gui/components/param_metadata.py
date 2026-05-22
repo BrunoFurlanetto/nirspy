@@ -34,6 +34,8 @@ class ParamMeta:
         Maximum valid value.
     step:
         Increment step for the numeric spinner.
+    choices:
+        If set, the field is rendered as a dropdown instead of a text input.
     """
 
     label: str
@@ -43,6 +45,7 @@ class ParamMeta:
     min: float | None = None
     max: float | None = None
     step: float | None = None
+    choices: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +151,51 @@ _PARAM_META_REGISTRY: dict[tuple[str, str], ParamMeta] = {
     ("load_snirf", "path"): ParamMeta(
         label="SNIRF path",
         description="Filesystem path to the .snirf input file.",
+    ),
+    # -- SplineMotionCorrection -----------------------------------------------
+    ("spline_motion_correction", "threshold"): ParamMeta(
+        label="Artifact threshold (z-score)",
+        description=(
+            "Samples whose temporal-derivative z-score exceeds this "
+            "value are flagged as motion artifacts."
+        ),
+        reference="Scholkmann et al., 2010",
+        min=1.0,
+        max=10.0,
+        step=0.5,
+    ),
+    ("spline_motion_correction", "spline_order"): ParamMeta(
+        label="Spline order",
+        description=(
+            "Order of the interpolating spline. "
+            "1 = linear, 3 = cubic (recommended), 5 = quintic."
+        ),
+        reference="Scholkmann et al., 2010",
+        min=1,
+        max=5,
+        step=1,
+    ),
+    # -- WaveletMotionCorrection ------------------------------------------------
+    ("wavelet_motion_correction", "wavelet"): ParamMeta(
+        label="Wavelet family",
+        description=(
+            "Mother wavelet for the DWT decomposition. "
+            "sym8 is recommended for fNIRS motion correction."
+        ),
+        reference="Molavi & Dumont, 2012",
+        choices=["sym8", "sym4", "sym6", "db4", "db6", "haar"],
+    ),
+    ("wavelet_motion_correction", "iqr_multiplier"): ParamMeta(
+        label="IQR multiplier",
+        description=(
+            "Multiplier for the interquartile range (IQR) used to "
+            "compute the soft-threshold. Higher values remove more "
+            "detail coefficients (stronger smoothing)."
+        ),
+        reference="Molavi & Dumont, 2012",
+        min=0.5,
+        max=5.0,
+        step=0.1,
     ),
     # -- ManualChannelExclude ------------------------------------------------
     ("manual_channel_exclude", "channels"): ParamMeta(
