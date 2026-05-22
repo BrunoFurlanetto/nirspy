@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import mne
 import mne.io
@@ -24,7 +24,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _label_segments(mask: np.ndarray) -> tuple[np.ndarray, int]:
+def _label_segments(
+    mask: np.ndarray[Any, Any],
+) -> tuple[np.ndarray[Any, Any], int]:
     """Label contiguous True segments in a boolean array.
 
     Returns
