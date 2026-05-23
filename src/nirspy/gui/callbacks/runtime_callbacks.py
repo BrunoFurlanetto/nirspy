@@ -29,6 +29,17 @@ On ``skip_block``             → calls next_block() without execute_current().
 
 Limitation: skipping a block that produces data consumed by a downstream block
 will cause that downstream block to fail.  A warning badge is shown in the UI.
+
+T-028 additions
+---------------
+- ``start_interactive_run`` now resets ``hrf-runtime-state`` and populates
+  ``available_conditions`` from the SNIRF file so the HRF groups dialog can
+  auto-populate its condition Dropdowns.
+- ``_make_modal_children`` dispatches ``render_hrf_runtime_dialog`` when the
+  current block's ``block_id`` is ``"block_average"``.
+- ``advance_run`` reads ``hrf-runtime-state`` and, if the current block is
+  ``block_average``, builds a ``params_override`` with ``per_condition_groups``
+  from the HRF dialog before calling ``execute_current``.
 """
 
 from __future__ import annotations
@@ -191,8 +202,9 @@ def start_interactive_run(
 ) -> tuple[Any, Any, Any, Any, Any]:
     """Create a PipelineRunner and open the first block's dialog.
 
-    Also resets ``hrf-runtime-state`` so previous run's group configuration
-    does not bleed into the new run.
+    Also resets ``hrf-runtime-state`` so a previous run's group configuration
+    does not bleed into the new run.  Pre-populates ``available_conditions``
+    from the SNIRF file for the HRF groups dialog (T-028).
     """
     _hrf_reset: dict[str, Any] = {"groups": [], "available_conditions": None}
     if not n_clicks or not pipeline_state:
@@ -276,10 +288,11 @@ def advance_run(
 ) -> tuple[Any, ...]:
     """Execute the current block then advance to the next, or finalise the run.
 
-    When the current block is ``block_average`` and the HRF specialized dialog
-    was shown, reads ``hrf-runtime-state`` to build a ``params_override`` with
-    ``per_condition_groups`` (T-028).  For all other blocks, no override is
-    applied (params come from the pipeline builder state).
+    When the current block is ``block_average`` the HRF specialized dialog
+    (T-028) may have collected ``per_condition_groups`` in ``hrf-runtime-state``.
+    If so, a transient ``params_override`` is built and passed to
+    ``execute_current`` so the HRF groups run without modifying the pipeline
+    builder state.
     """
     no_op = (
         no_update, no_update, no_update,
@@ -306,11 +319,11 @@ def advance_run(
     )
     params_override: dict[str, Any] | None = None
     if current_block_id == "block_average":
-        params_override = build_hrf_params_override(hrf_state)
-        # Strip internal marker not recognised by BlockAverageParams
-        if params_override and "_hrf_mode" in params_override:
+        raw_override = build_hrf_params_override(hrf_state)
+        if raw_override is not None:
+            # Strip internal marker not recognised by BlockAverageParams
             params_override = {
-                k: v for k, v in params_override.items() if k != "_hrf_mode"
+                k: v for k, v in raw_override.items() if k != "_hrf_mode"
             }
 
     try:
@@ -332,6 +345,7 @@ def advance_run(
         )
 
     # Advance to next block
+    snirf_path_adv: str | None = exec_state.get("snirf_path")
     spec = runner.next_block()
     if spec is None or runner.is_complete:
         # Pipeline complete — finalise
@@ -355,7 +369,6 @@ def advance_run(
         )
 
     # More blocks — render next dialog
-    snirf_path_adv: str | None = exec_state.get("snirf_path")
     updated_state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
