@@ -401,13 +401,16 @@ def _render_hrf_mode_widget(
         id={"type": "cg-windows-panel", "instance_id": instance_id},
     )
 
+    active_label = current_values.get(f"_active_group_{instance_id}")
+    if active_label == "__none__":
+        active_label = None
     groups_editor = html.Div(
         render_condition_groups_editor(
             instance_id,
             pcg if isinstance(pcg, dict) else None,
             available_conditions=available_conditions,
             snirf_path=snirf_path,
-            active_group_label=current_values.get("_active_group_label"),
+            active_group_label=active_label,
         ),
         style={"display": "block" if active_mode == "groups" else "none"},
         id={"type": "cg-groups-panel", "instance_id": instance_id},
