@@ -104,11 +104,15 @@ def groups_mode_radio_id(instance_id: str) -> dict[str, Any]:
 
 def _time_defaults(params_snapshot: dict[str, Any]) -> dict[str, float]:
     """Return global tmin/tmax/baseline_tmin/baseline_tmax from params."""
+    def _f(key: str, default: float) -> float:
+        v = params_snapshot.get(key)
+        return float(v) if v is not None else default
+
     return {
-        "tmin": float(params_snapshot.get("tmin") or -2.0),
-        "tmax": float(params_snapshot.get("tmax") or 18.0),
-        "baseline_tmin": float(params_snapshot.get("baseline_tmin") or -2.0),
-        "baseline_tmax": float(params_snapshot.get("baseline_tmax") or 0.0),
+        "tmin": _f("tmin", -2.0),
+        "tmax": _f("tmax", 18.0),
+        "baseline_tmin": _f("baseline_tmin", -2.0),
+        "baseline_tmax": _f("baseline_tmax", 0.0),
     }
 
 
@@ -355,15 +359,19 @@ def render_condition_groups_editor(
                 }
             )
         elif isinstance(grp_val, dict):
+            _t = grp_val.get("tmin")
+            _x = grp_val.get("tmax")
+            _bm = grp_val.get("baseline_tmin")
+            _bx = grp_val.get("baseline_tmax")
             groups_list.append(
                 {
                     "label": grp_label,
                     "condition_names": list(grp_val.get("condition_names") or []),
                     "event_indices": list(grp_val.get("event_indices") or []),
-                    "tmin": float(grp_val.get("tmin") or -2.0),
-                    "tmax": float(grp_val.get("tmax") or 18.0),
-                    "baseline_tmin": float(grp_val.get("baseline_tmin") or -2.0),
-                    "baseline_tmax": float(grp_val.get("baseline_tmax") or 0.0),
+                    "tmin": float(_t) if _t is not None else -2.0,
+                    "tmax": float(_x) if _x is not None else 18.0,
+                    "baseline_tmin": float(_bm) if _bm is not None else -2.0,
+                    "baseline_tmax": float(_bx) if _bx is not None else 0.0,
                 }
             )
 
