@@ -177,24 +177,13 @@ def _render_group_card(
             )
         )
 
-    cond_hint: list[Any] = []
-    if not available_conditions:
-        cond_hint = [
-            html.Small(
-                "Set the LoadSnirf path first to get condition names.",
-                className="text-muted d-block mb-1",
-            )
-        ]
-
-    # Determine mode: event_indices mode vs condition_names mode
-    timeline_mode = bool(event_indices)
-
-    if timeline_mode:
-        # Show a read-only badge — editing happens via the timeline chart
+    # Timeline-first: card always shows badge + hidden dropdown for callback compat.
+    # Users select occurrences via the shared timeline above.
+    if event_indices:
         conditions_section: list[Any] = [
-            html.Small("Occurrences (timeline mode)", className="fw-bold d-block mb-1"),
+            html.Small("Occurrences (timeline)", className="fw-bold d-block mb-1"),
             dbc.Badge(
-                f"{len(event_indices)} occurrence(s) selected via timeline",
+                f"{len(event_indices)} occurrence(s) selected",
                 color="primary",
                 className="mb-1",
             ),
@@ -202,7 +191,6 @@ def _render_group_card(
                 f"Indices: {event_indices}",
                 className="text-muted d-block",
             ),
-            # Hidden dropdown still registered so callbacks don't break
             dcc.Dropdown(
                 id=group_conditions_id(instance_id, group_idx),
                 options=[],
@@ -213,15 +201,18 @@ def _render_group_card(
         ]
     else:
         conditions_section = [
-            html.Small("Conditions", className="fw-bold d-block mb-1"),
-            *cond_hint,
+            html.Small("Occurrences", className="fw-bold d-block mb-1"),
+            html.Small(
+                "Set this group as Active above, then click markers on the timeline.",
+                className="text-muted d-block mb-1",
+            ),
             dcc.Dropdown(
                 id=group_conditions_id(instance_id, group_idx),
                 options=options,
                 value=condition_names,
                 multi=True,
-                placeholder="Select conditions for this group…",
-                style=dropdown_style,
+                placeholder="(or pick by name — legacy mode)",
+                style={**dropdown_style, "display": "none" if available_conditions else "block"},
             ),
             html.Div(
                 [

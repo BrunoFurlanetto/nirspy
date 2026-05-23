@@ -341,6 +341,8 @@ def add_condition_group(
         params["per_condition_groups"] = _groups_list_to_dict(groups)
         params["per_condition_windows"] = {}
         params["_hrf_mode"] = "groups"
+        # Auto-select newly added group as active for the timeline (UX)
+        params[f"_active_group_{instance_id}"] = f"Group {idx}"
         entry["params"] = params
         break
 
