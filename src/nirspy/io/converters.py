@@ -38,6 +38,7 @@ __all__ = [
     "StimEvent",
     "nirs_to_snirf",
     "snirf_to_nirs",
+    "inspect_nirs_distances",
 ]
 
 
@@ -253,6 +254,7 @@ def nirs_to_snirf(
     overwrite: bool = False,
     *,
     strip_pii: bool = False,
+    pos_scale: float = 1.0,
 ) -> None:
     """Convert a .nirs (HOMER2/3 MAT-file) to .snirf (SNIRF 1.1 HDF5).
 
@@ -261,6 +263,10 @@ def nirs_to_snirf(
         output_path: Path for the .snirf output file.
         overwrite:   If ``False`` (default), raises ``ConverterError`` when
                      ``output_path`` already exists.
+        pos_scale:   Multiplier applied to source/detector positions before
+                     writing. Use to correct unit mismatches in exports
+                     (e.g. ``10.0`` when the .nirs was written in cm but
+                     the SNIRF LengthUnit must be mm).
 
     Raises:
         ConverterError:   ``input_path`` does not exist, wrong extension, or
@@ -277,6 +283,9 @@ def nirs_to_snirf(
     data = _parse_nirs(in_path)
     if strip_pii:
         data.metadata = _strip_pii_from_metadata(data.metadata)
+    if pos_scale != 1.0:
+        data.source_pos = data.source_pos * float(pos_scale)
+        data.detector_pos = data.detector_pos * float(pos_scale)
     data.validate()
     _write_snirf(data, out_path)
 
@@ -316,6 +325,47 @@ def snirf_to_nirs(
         data.metadata = _strip_pii_from_metadata(data.metadata)
     data.validate()
     _write_nirs(data, out_path)
+
+
+def inspect_nirs_distances(input_path: Path | str) -> dict[str, float | int]:
+    """Compute source-detector distance stats from a .nirs file.
+
+    Used by the converter UI to preview the probe geometry so the user
+    can spot unit mismatches (e.g. cm written as if it were mm) before
+    converting to SNIRF.
+
+    Returns a dict with ``mean``, ``min``, ``max`` (raw position units,
+    typically expected to be mm) and ``n_channels`` (count of unique
+    src-det pairs used to compute the stats).
+    """
+    in_path = Path(input_path)
+    _validate_input(in_path, ".nirs")
+    data = _parse_nirs(in_path)
+
+    pairs: set[tuple[int, int]] = set()
+    for ch in data.meas_list:
+        pairs.add((ch.source_index, ch.detector_index))
+
+    distances: list[float] = []
+    for src_idx, det_idx in pairs:
+        if not (1 <= src_idx <= data.source_pos.shape[0]):
+            continue
+        if not (1 <= det_idx <= data.detector_pos.shape[0]):
+            continue
+        s = data.source_pos[src_idx - 1]
+        d = data.detector_pos[det_idx - 1]
+        distances.append(float(np.linalg.norm(s - d)))
+
+    if not distances:
+        return {"mean": 0.0, "min": 0.0, "max": 0.0, "n_channels": 0}
+
+    arr = np.array(distances, dtype=np.float64)
+    return {
+        "mean": float(arr.mean()),
+        "min": float(arr.min()),
+        "max": float(arr.max()),
+        "n_channels": len(distances),
+    }
 
 
 # ---------------------------------------------------------------------------

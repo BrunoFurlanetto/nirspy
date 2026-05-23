@@ -23,6 +23,7 @@ from dash import (
     State,
     callback,
     dcc,
+    html,
     no_update,
 )
 from dash.exceptions import PreventUpdate
@@ -86,6 +87,109 @@ def on_file_upload(
     )
 
 
+def _build_distance_info(
+    stats: dict[str, float | int],
+) -> tuple[Any, str]:
+    """Return (info-children, suggested-scale-value) for the panel."""
+    mean_d = float(stats.get("mean", 0.0))
+    min_d = float(stats.get("min", 0.0))
+    max_d = float(stats.get("max", 0.0))
+    n_ch = int(stats.get("n_channels", 0))
+
+    # Heuristic: typical adult fNIRS S-D distance is 25-40 mm. If the
+    # mean is suspiciously small (< 10) we suggest a x10 scale because
+    # the .nirs file is likely in cm.
+    suggested_scale = "10" if 0.0 < mean_d < 10.0 else "1"
+
+    if suggested_scale != "1":
+        suspicion_msg = html.Div(
+            [
+                html.Strong("Possible unit mismatch detected. "),
+                "The mean S-D distance looks like centimeters. "
+                "Apply x10 to convert to millimeters before writing "
+                "the SNIRF file.",
+            ],
+            className="small text-warning mb-2",
+        )
+    else:
+        suspicion_msg = html.Div(
+            "Confirm the source-detector distance is correct before "
+            "converting. Adjust the scale factor if needed.",
+            className="small text-muted mb-2",
+        )
+
+    info = [
+        html.Div(
+            [
+                html.I(className="bi bi-rulers me-2"),
+                html.Strong("Probe distance check"),
+            ],
+            className="mb-2",
+        ),
+        html.Div(
+            f"Detected mean S-D distance: {mean_d:.3f} "
+            f"(min {min_d:.3f}, max {max_d:.3f}) across "
+            f"{n_ch} channel pair(s).",
+            className="small mb-2",
+        ),
+        suspicion_msg,
+    ]
+    return info, suggested_scale
+
+
+@callback(
+    Output("converter-probe-distance-info", "children"),
+    Output("converter-probe-distance-panel", "style"),
+    Output("converter-pos-scale", "value"),
+    Input("converter-upload", "contents"),
+    Input("converter-upload", "filename"),
+    Input("converter-direction", "value"),
+    prevent_initial_call=True,
+)
+def on_inspect_probe_distance(
+    contents: str | None,
+    filename: str | None,
+    direction: str | None,
+) -> tuple[Any, dict[str, str], Any]:
+    """Inspect the uploaded .nirs file and show the probe-distance panel.
+
+    Only runs for the ``nirs_to_snirf`` direction with a .nirs file —
+    other combinations hide the panel and reset the scale to x1.
+    """
+    hidden = {"display": "none"}
+    if not contents or not filename or direction != "nirs_to_snirf":
+        return [], hidden, "1"
+    if Path(filename).suffix.lower() != ".nirs":
+        return [], hidden, "1"
+
+    content_string = (
+        contents.split(",", 1)[1]
+        if "," in contents
+        else contents
+    )
+    try:
+        raw_bytes = base64.b64decode(content_string)
+    except (ValueError, TypeError):
+        return [], hidden, "1"
+
+    from nirspy.io.converters import inspect_nirs_distances
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_in = Path(tmp_dir) / "input.nirs"
+            tmp_in.write_bytes(raw_bytes)
+            stats = inspect_nirs_distances(tmp_in)
+    except ConverterError as exc:
+        logger.warning("Probe-distance inspection failed: %s", exc)
+        return [], hidden, "1"
+    except Exception:
+        logger.exception("Unexpected error inspecting probe distance")
+        return [], hidden, "1"
+
+    info, suggested = _build_distance_info(stats)
+    return info, {"display": "block"}, suggested
+
+
 @callback(
     Output("converter-status", "children"),
     Output("converter-download", "data"),
@@ -94,6 +198,7 @@ def on_file_upload(
     State("converter-upload", "filename"),
     State("converter-direction", "value"),
     State("converter-strip-pii", "value"),
+    State("converter-pos-scale", "value"),
     prevent_initial_call=True,
 )
 def on_convert(
@@ -102,6 +207,7 @@ def on_convert(
     filename: str | None,
     direction: str,
     strip_pii: bool,
+    pos_scale: str | None,
 ) -> tuple[Any, Any]:
     """Run the file conversion and trigger download."""
     if not n_clicks or not contents or not filename:
@@ -150,11 +256,20 @@ def on_convert(
             output_name = f"{stem}{output_suffix}"
             output_path = tmp_path / output_name
 
+            extra_kwargs: dict[str, Any] = {}
+            if direction == "nirs_to_snirf":
+                try:
+                    scale_val = float(pos_scale) if pos_scale else 1.0
+                except (TypeError, ValueError):
+                    scale_val = 1.0
+                extra_kwargs["pos_scale"] = scale_val
+
             converter_fn(
                 input_path,
                 output_path,
                 overwrite=True,
                 strip_pii=strip_pii,
+                **extra_kwargs,
             )
 
             result_bytes = output_path.read_bytes()
