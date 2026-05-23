@@ -285,6 +285,7 @@ def toggle_hrf_mode(
         if entry["instance_id"] != instance_id:
             continue
         params = dict(entry.get("params", {}))
+        params["_hrf_mode"] = new_mode
         if new_mode == "groups":
             params["per_condition_windows"] = {}
         else:
@@ -336,6 +337,7 @@ def add_condition_group(
         )
         params["per_condition_groups"] = _groups_list_to_dict(groups)
         params["per_condition_windows"] = {}
+        params["_hrf_mode"] = "groups"
         entry["params"] = params
         break
 

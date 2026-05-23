@@ -372,8 +372,12 @@ def _render_hrf_mode_widget(
     pcw: dict[str, Any] = current_values.get("per_condition_windows") or {}
     pcg: dict[str, Any] = current_values.get("per_condition_groups") or {}
 
-    # Mode: "groups" wins if there are groups configured; else "windows"
-    active_mode = "groups" if pcg else "windows"
+    # Mode: explicit marker wins; else infer from non-empty pcg; else "windows"
+    explicit_mode = current_values.get("_hrf_mode")
+    if explicit_mode in ("windows", "groups"):
+        active_mode = explicit_mode
+    else:
+        active_mode = "groups" if pcg else "windows"
 
     radio = dbc.RadioItems(
         id=groups_mode_radio_id(instance_id),
