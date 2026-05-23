@@ -226,10 +226,11 @@ def render_params(
     block_cls = registry.get(block_id)
     spec: BlockSpec = block_cls.SPEC  # type: ignore[attr-defined]
 
-    # For block_average, harvest available condition names from any
-    # LoadSnirf step in the pipeline so the editor dropdown can be
-    # pre-populated without requiring a pipeline run first.
+    # For block_average, harvest available condition names + SNIRF path from
+    # any LoadSnirf step in the pipeline so the editor dropdown and timeline
+    # (T-030) are pre-populated without requiring a pipeline run first.
     available_conditions: list[str] | None = None
+    snirf_path: str | None = None
     if block_id == "block_average":
         from nirspy.gui.components.condition_windows_editor import (
             read_snirf_condition_names,
@@ -237,10 +238,12 @@ def render_params(
 
         for step in pipeline_state:
             if step.get("block_id") == "load_snirf":
-                snirf_path = step.get("params", {}).get("path")
-                names = read_snirf_condition_names(snirf_path)
-                if names:
-                    available_conditions = names
+                raw_path = step.get("params", {}).get("path")
+                if raw_path:
+                    snirf_path = str(raw_path)
+                    names = read_snirf_condition_names(snirf_path)
+                    if names:
+                        available_conditions = names
                     break
 
     return render_param_editor(
@@ -249,4 +252,5 @@ def render_params(
         params_class=spec.params_class,
         current_values=entry.get("params", {}),
         available_conditions=available_conditions,
+        snirf_path=snirf_path,
     )

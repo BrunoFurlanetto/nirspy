@@ -358,6 +358,7 @@ def _render_hrf_mode_widget(
     instance_id: str,
     current_values: dict[str, Any],
     available_conditions: list[str] | None,
+    snirf_path: str | None = None,
 ) -> html.Div:
     """Render the mode toggle + active editor for BlockAverage (T-025).
 
@@ -405,6 +406,8 @@ def _render_hrf_mode_widget(
             instance_id,
             pcg if isinstance(pcg, dict) else None,
             available_conditions=available_conditions,
+            snirf_path=snirf_path,
+            active_group_label=current_values.get("_active_group_label"),
         ),
         style={"display": "block" if active_mode == "groups" else "none"},
         id={"type": "cg-groups-panel", "instance_id": instance_id},
@@ -429,6 +432,7 @@ def render_param_editor(
     *,
     available_channels: list[str] | None = None,
     available_conditions: list[str] | None = None,
+    snirf_path: str | None = None,
 ) -> html.Div:
     """Auto-generate a parameter form for *params_class*.
 
@@ -489,6 +493,7 @@ def render_param_editor(
                 instance_id,
                 current_values,
                 available_conditions=available_conditions,
+                snirf_path=snirf_path,
             )
         )
 
