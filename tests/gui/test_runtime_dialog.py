@@ -216,14 +216,18 @@ class TestStartInteractiveRun:
         assert all(r is no_update for r in result)
 
     def test_creates_runner_and_populates_state(self) -> None:
-        """start_interactive_run must return state with status='running'."""
+        """start_interactive_run must return state with status='running'.
+
+        start_interactive_run now returns 5 values (added hrf-runtime-state
+        output in T-028).
+        """
         from nirspy.gui.callbacks.runtime_callbacks import (
             _INTERACTIVE_RUNNERS,
             start_interactive_run,
         )
 
         pipeline_state = [_make_entry("optical_density")]
-        modal_children, exec_state, _err_msg, err_open = start_interactive_run(
+        modal_children, exec_state, _err_msg, err_open, _hrf_state = start_interactive_run(
             1, pipeline_state, None
         )
         assert exec_state["status"] == "running"
@@ -242,7 +246,7 @@ class TestStartInteractiveRun:
         )
 
         pipeline_state = [_make_entry("optical_density")]
-        modal_children, exec_state, _, _ = start_interactive_run(
+        modal_children, exec_state, _, _, _hrf = start_interactive_run(
             1, pipeline_state, None
         )
         assert len(modal_children) > 0
@@ -253,7 +257,7 @@ class TestStartInteractiveRun:
         from nirspy.gui.callbacks.runtime_callbacks import start_interactive_run
 
         pipeline_state = [_make_entry("nonexistent_block")]
-        _, state, _msg, err_open = start_interactive_run(1, pipeline_state, None)
+        _, state, _msg, err_open, _hrf = start_interactive_run(1, pipeline_state, None)
         assert err_open is True
         assert state["status"] == "idle"
 
@@ -264,7 +268,7 @@ class TestStartInteractiveRun:
         )
 
         pipeline_state = [_make_entry("optical_density")]
-        _, exec_state, _, _ = start_interactive_run(1, pipeline_state, None)
+        _, exec_state, _, _, _hrf = start_interactive_run(1, pipeline_state, None)
         runner_id = exec_state["runner_id"]
         assert runner_id in _INTERACTIVE_RUNNERS
 
@@ -322,10 +326,11 @@ class TestAdvanceRun:
     """Unit tests for advance_run callback."""
 
     def test_no_clicks_returns_no_update(self) -> None:
+        """advance_run now accepts hrf_state as third argument (T-028)."""
         from dash import no_update
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
-        result = advance_run(None, None)
+        result = advance_run(None, None, None)
         assert all(r is no_update for r in result)
 
     def test_advance_with_more_blocks_updates_idx(self) -> None:
@@ -353,15 +358,18 @@ class TestAdvanceRun:
         mock_runner.next_block.return_value = next_spec
         mock_runner.current_idx = 1
         mock_runner.total_steps = 2
-        mock_runner.current_block = MagicMock()
-        mock_runner.current_block.params = None
+        # current_block.spec.block_id used by T-028 HRF dispatch
+        mock_current_block = MagicMock()
+        mock_current_block.spec.block_id = "optical_density"
+        mock_current_block.params = None
+        mock_runner.current_block = mock_current_block
 
         mock_context = MagicMock()
         mock_context.extra = {}
         _INTERACTIVE_RUNNERS[runner_id] = (mock_runner, mock_context)
 
         exec_state = {"runner_id": runner_id, "current_idx": 0, "status": "running"}
-        modal_children, new_state, *_ = advance_run(1, exec_state)
+        modal_children, new_state, *_ = advance_run(1, exec_state, None)
 
         assert new_state["current_idx"] == 1
         assert new_state["status"] == "running"
@@ -373,7 +381,7 @@ class TestAdvanceRun:
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
         exec_state = {"runner_id": "", "current_idx": -1, "status": "idle"}
-        result = advance_run(1, exec_state)
+        result = advance_run(1, exec_state, None)
         assert all(r is no_update for r in result)
 
 

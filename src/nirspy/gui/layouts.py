@@ -283,6 +283,11 @@ def create_layout() -> dbc.Container:
                     "status": "idle",
                 },
             ),
+            # HRF specialized dialog state (T-028)
+            dcc.Store(
+                id="hrf-runtime-state",
+                data={"groups": [], "available_conditions": None},
+            ),
         ]
     )
 

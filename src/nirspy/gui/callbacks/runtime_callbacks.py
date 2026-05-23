@@ -29,6 +29,17 @@ On ``skip_block``             → calls next_block() without execute_current().
 
 Limitation: skipping a block that produces data consumed by a downstream block
 will cause that downstream block to fail.  A warning badge is shown in the UI.
+
+T-028 additions
+---------------
+- ``start_interactive_run`` now resets ``hrf-runtime-state`` and populates
+  ``available_conditions`` from the SNIRF file so the HRF groups dialog can
+  auto-populate its condition Dropdowns.
+- ``_make_modal_children`` dispatches ``render_hrf_runtime_dialog`` when the
+  current block's ``block_id`` is ``"block_average"``.
+- ``advance_run`` reads ``hrf-runtime-state`` and, if the current block is
+  ``block_average``, builds a ``params_override`` with ``per_condition_groups``
+  from the HRF dialog before calling ``execute_current``.
 """
 
 from __future__ import annotations
@@ -51,6 +62,10 @@ from nirspy.gui.callbacks.execution_callbacks import (
     _is_raw,
 )
 from nirspy.gui.components.error_display import render_error
+from nirspy.gui.components.hrf_runtime_dialog import (
+    build_hrf_params_override,
+    render_hrf_runtime_dialog,
+)
 from nirspy.gui.components.runtime_dialog import render_runtime_dialog
 
 logger = logging.getLogger(__name__)
@@ -66,14 +81,46 @@ _IDLE_STATE: dict[str, Any] = {
 }
 
 
+def _extract_snirf_path(
+    pipeline_state: list[dict[str, Any]],
+) -> str | None:
+    """Return the SNIRF file path from the load_snirf block in *pipeline_state*."""
+    for entry in pipeline_state:
+        if entry.get("block_id") == "load_snirf":
+            path = entry.get("params", {}).get("path")
+            return str(path) if path is not None else None
+    return None
+
+
 def _make_modal_children(
     spec: BlockSpec,
     current_idx: int,
     total: int,
     current_params: dict[str, Any] | None = None,
+    snirf_path: str | None = None,
 ) -> list[Any]:
-    """Return children list for the runtime-dialog-modal container."""
-    modal = render_runtime_dialog(spec, current_idx, total, current_params)
+    """Return children list for the runtime-dialog-modal container.
+
+    Dispatches a specialised dialog when *spec.block_id* matches a block that
+    has a custom interactive dialog:
+
+    - ``block_average`` → ``render_hrf_runtime_dialog`` (T-028)
+    - everything else   → ``render_runtime_dialog``
+    """
+    if spec.block_id == "block_average":
+        from nirspy.gui.components.condition_windows_editor import (
+            read_snirf_condition_names,
+        )
+        available_conditions = read_snirf_condition_names(snirf_path)
+        modal = render_hrf_runtime_dialog(
+            block_spec=spec,
+            current_idx=current_idx,
+            total=total,
+            available_conditions=available_conditions,
+            current_params=current_params,
+        )
+    else:
+        modal = render_runtime_dialog(spec, current_idx, total, current_params)
     return [modal]
 
 
@@ -132,6 +179,7 @@ def _finalise_run(
     Output("interactive-exec-state", "data"),
     Output("run-interactive-error", "children"),
     Output("run-interactive-error", "is_open"),
+    Output("hrf-runtime-state", "data"),
     Input("run-interactive-btn", "n_clicks"),
     State("pipeline-state", "data"),
     State("input-file-path", "data"),
@@ -141,10 +189,16 @@ def start_interactive_run(
     n_clicks: int | None,
     pipeline_state: list[dict[str, Any]] | None,
     input_file_path: str | None,
-) -> tuple[Any, Any, Any, Any]:
-    """Create a PipelineRunner and open the first block's dialog."""
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Create a PipelineRunner and open the first block's dialog.
+
+    Also resets ``hrf-runtime-state`` so a previous run's group configuration
+    does not bleed into the new run.  Pre-populates ``available_conditions``
+    from the SNIRF file for the HRF groups dialog (T-028).
+    """
+    _hrf_reset: dict[str, Any] = {"groups": [], "available_conditions": None}
     if not n_clicks or not pipeline_state:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     # Override LoadSnirf path if a file was uploaded (mirrors execution_callbacks)
     if input_file_path:
@@ -158,7 +212,7 @@ def start_interactive_run(
     except (KeyError, NirspyError) as exc:
         logger.exception("Interactive run: failed to build pipeline")
         msg = get_user_message(exc) if isinstance(exc, NirspyError) else str(exc)
-        return [], _IDLE_STATE, render_error(msg), True
+        return [], _IDLE_STATE, render_error(msg), True, _hrf_reset
 
     from nirspy.domain.execution import ExecutionContext, PipelineRunner
 
@@ -169,22 +223,34 @@ def start_interactive_run(
     spec = runner.next_block()
     if spec is None:
         # Empty pipeline — nothing to run
-        return [], _IDLE_STATE, "Pipeline has no enabled blocks.", True
+        return [], _IDLE_STATE, "Pipeline has no enabled blocks.", True, _hrf_reset
 
     runner_id = str(uuid.uuid4())
     _INTERACTIVE_RUNNERS[runner_id] = (runner, context)
 
+    snirf_path = _extract_snirf_path(pipeline_state)
     state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
         "status": "running",
+        "snirf_path": snirf_path,
+    }
+
+    # Pre-populate available_conditions in hrf-runtime-state (T-028)
+    from nirspy.gui.components.condition_windows_editor import (
+        read_snirf_condition_names,
+    )
+    available_conditions = read_snirf_condition_names(snirf_path)
+    hrf_state: dict[str, Any] = {
+        "groups": [],
+        "available_conditions": available_conditions,
     }
 
     current_params = _extract_current_params(runner)
     modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path
     )
-    return modal_children, state, "", False
+    return modal_children, state, "", False, hrf_state
 
 
 # ---------------------------------------------------------------------------
@@ -201,13 +267,22 @@ def start_interactive_run(
     Output("run-success", "is_open", allow_duplicate=True),
     Input("runtime-advance-btn", "n_clicks"),
     State("interactive-exec-state", "data"),
+    State("hrf-runtime-state", "data"),
     prevent_initial_call=True,
 )
 def advance_run(
     n_clicks: int | None,
     exec_state: dict[str, Any] | None,
+    hrf_state: dict[str, Any] | None,
 ) -> tuple[Any, ...]:
-    """Execute the current block then advance to the next, or finalise the run."""
+    """Execute the current block then advance to the next, or finalise the run.
+
+    When the current block is ``block_average`` the HRF specialized dialog
+    (T-028) may have collected ``per_condition_groups`` in ``hrf-runtime-state``.
+    If so, a transient ``params_override`` is built and passed to
+    ``execute_current`` so the HRF groups run without modifying the pipeline
+    builder state.
+    """
     no_op = (
         no_update, no_update, no_update,
         no_update, no_update, no_update, no_update,
@@ -225,13 +300,23 @@ def advance_run(
         return no_op
     runner, context = entry
 
-    # Execute current block (no params_override in generic dialog — params are
-    # embedded in the dialog's param-input components but collecting their
-    # values generically via State(ALL) is handled in param_callbacks already
-    # updating pipeline-state. For the interactive run, we read the runner's
-    # own block params that were set when the pipeline was built.)
+    # Determine params_override: HRF groups dialog provides per_condition_groups
+    # for block_average; all other blocks execute without override.
+    current_block = runner.current_block
+    current_block_id: str = (
+        current_block.spec.block_id if current_block is not None else ""
+    )
+    params_override: dict[str, Any] | None = None
+    if current_block_id == "block_average":
+        raw_override = build_hrf_params_override(hrf_state)
+        if raw_override is not None:
+            # Strip internal marker not recognised by BlockAverageParams
+            params_override = {
+                k: v for k, v in raw_override.items() if k != "_hrf_mode"
+            }
+
     try:
-        runner.execute_current()
+        runner.execute_current(params_override)
     except NirspyError as exc:
         logger.exception("Interactive run: block execution failed")
         msg = get_user_message(exc)
@@ -249,6 +334,7 @@ def advance_run(
         )
 
     # Advance to next block
+    snirf_path_adv: str | None = exec_state.get("snirf_path")
     spec = runner.next_block()
     if spec is None or runner.is_complete:
         # Pipeline complete — finalise
@@ -276,10 +362,11 @@ def advance_run(
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
         "status": "running",
+        "snirf_path": snirf_path_adv,
     }
     current_params = _extract_current_params(runner)
     modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path_adv
     )
     return (
         modal_children,
@@ -382,13 +469,15 @@ def skip_block(
         }
         return [], completed_state, warning_msg, True
 
+    snirf_path_skip: str | None = exec_state.get("snirf_path")
     updated_state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
         "status": "running",
+        "snirf_path": snirf_path_skip,
     }
     current_params = _extract_current_params(runner)
     modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path_skip
     )
     return modal_children, updated_state, warning_msg, True
