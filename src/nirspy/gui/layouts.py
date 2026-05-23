@@ -274,14 +274,30 @@ def create_layout() -> dbc.Container:
             ),
             dcc.Store(id="tutorial-highlight-target", data=""),
             dcc.Download(id="download-pipeline"),
+            # Interactive run state store
+            dcc.Store(
+                id="interactive-exec-state",
+                data={
+                    "runner_id": "",
+                    "current_idx": -1,
+                    "status": "idle",
+                },
+            ),
         ]
     )
 
     # Tutorial modal container (populated dynamically by callbacks)
     tutorial_container = html.Div(id="tutorial-modal-container")
 
+    # Runtime dialog container (populated dynamically by runtime_callbacks)
+    runtime_dialog_container = html.Div(
+        id="runtime-dialog-container",
+        children=[],
+    )
+
     return dbc.Container(
-        [navbar, body, viz_tabs, stores, tutorial_container],
+        [navbar, body, viz_tabs, stores, tutorial_container,
+         runtime_dialog_container],
         fluid=True,
         className="px-0",
     )

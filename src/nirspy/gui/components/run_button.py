@@ -30,7 +30,7 @@ def render_run_button() -> html.Div:
                             ),
                             accept=".snirf",
                         ),
-                        width=6,
+                        width=4,
                     ),
                     dbc.Col(
                         dbc.Button(
@@ -40,7 +40,17 @@ def render_run_button() -> html.Div:
                             size="sm",
                             className="w-100",
                         ),
-                        width=6,
+                        width=4,
+                    ),
+                    dbc.Col(
+                        dbc.Button(
+                            "Run Interactive",
+                            id="run-interactive-btn",
+                            color="info",
+                            size="sm",
+                            className="w-100",
+                        ),
+                        width=4,
                     ),
                 ],
                 className="mb-2",
@@ -71,6 +81,21 @@ def render_run_button() -> html.Div:
             dbc.Alert(
                 id="run-success",
                 color="success",
+                dismissable=True,
+                is_open=False,
+                className="mt-2",
+            ),
+            # Interactive run alerts (shared with runtime_callbacks)
+            dbc.Alert(
+                id="run-interactive-error",
+                color="danger",
+                dismissable=True,
+                is_open=False,
+                className="mt-2",
+            ),
+            dbc.Alert(
+                id="run-interactive-warning",
+                color="warning",
                 dismissable=True,
                 is_open=False,
                 className="mt-2",
