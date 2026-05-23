@@ -51,7 +51,13 @@ from nirspy.gui.callbacks.execution_callbacks import (
     _is_raw,
 )
 from nirspy.gui.components.error_display import render_error
+from nirspy.gui.components.hrf_runtime_dialog import (
+    build_hrf_params_override,
+    render_hrf_runtime_dialog,
+)
+from nirspy.gui.components.probe_dialog import build_channels_override, render_probe_dialog
 from nirspy.gui.components.runtime_dialog import render_runtime_dialog
+from nirspy.io.montage import save_sidecar_montage
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +72,54 @@ _IDLE_STATE: dict[str, Any] = {
 }
 
 
+def _extract_snirf_path(pipeline_state: list[dict[str, Any]]) -> str | None:
+    """Return the SNIRF file path from the load_snirf block in *pipeline_state*.
+
+    Returns *None* if the block is absent or has no path configured.
+    """
+    for entry in pipeline_state:
+        if entry.get("block_id") == "load_snirf":
+            path = entry.get("params", {}).get("path")
+            return str(path) if path is not None else None
+    return None
+
+
 def _make_modal_children(
     spec: BlockSpec,
     current_idx: int,
     total: int,
     current_params: dict[str, Any] | None = None,
+    snirf_path: str | None = None,
 ) -> list[Any]:
-    """Return children list for the runtime-dialog-modal container."""
-    modal = render_runtime_dialog(spec, current_idx, total, current_params)
+    """Return children list for the runtime-dialog-modal container.
+
+    Dispatches a specialised dialog when *spec.block_id* matches a block that
+    has a custom interactive dialog:
+
+    - ``block_average``          → hrf_runtime_dialog.render_hrf_runtime_dialog (T-028)
+    - ``manual_channel_exclude`` → probe_dialog.render_probe_dialog (T-029)
+    - everything else            → runtime_dialog.render_runtime_dialog
+    """
+    if spec.block_id == "block_average":
+        from nirspy.gui.components.condition_windows_editor import (
+            read_snirf_condition_names,
+        )
+        available_conditions = read_snirf_condition_names(snirf_path)
+        modal = render_hrf_runtime_dialog(
+            block_spec=spec,
+            current_idx=current_idx,
+            total=total,
+            available_conditions=available_conditions,
+            current_params=current_params,
+        )
+    elif spec.block_id == "manual_channel_exclude":
+        modal = render_probe_dialog(
+            snirf_path=snirf_path,
+            current_idx=current_idx,
+            total=total,
+        )
+    else:
+        modal = render_runtime_dialog(spec, current_idx, total, current_params)
     return [modal]
 
 
@@ -132,6 +178,7 @@ def _finalise_run(
     Output("interactive-exec-state", "data"),
     Output("run-interactive-error", "children"),
     Output("run-interactive-error", "is_open"),
+    Output("hrf-runtime-state", "data"),
     Input("run-interactive-btn", "n_clicks"),
     State("pipeline-state", "data"),
     State("input-file-path", "data"),
@@ -141,10 +188,15 @@ def start_interactive_run(
     n_clicks: int | None,
     pipeline_state: list[dict[str, Any]] | None,
     input_file_path: str | None,
-) -> tuple[Any, Any, Any, Any]:
-    """Create a PipelineRunner and open the first block's dialog."""
+) -> tuple[Any, Any, Any, Any, Any]:
+    """Create a PipelineRunner and open the first block's dialog.
+
+    Also resets ``hrf-runtime-state`` so previous run's group configuration
+    does not bleed into the new run.
+    """
+    _hrf_reset: dict[str, Any] = {"groups": [], "available_conditions": None}
     if not n_clicks or not pipeline_state:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     # Override LoadSnirf path if a file was uploaded (mirrors execution_callbacks)
     if input_file_path:
@@ -158,7 +210,7 @@ def start_interactive_run(
     except (KeyError, NirspyError) as exc:
         logger.exception("Interactive run: failed to build pipeline")
         msg = get_user_message(exc) if isinstance(exc, NirspyError) else str(exc)
-        return [], _IDLE_STATE, render_error(msg), True
+        return [], _IDLE_STATE, render_error(msg), True, _hrf_reset
 
     from nirspy.domain.execution import ExecutionContext, PipelineRunner
 
@@ -169,22 +221,35 @@ def start_interactive_run(
     spec = runner.next_block()
     if spec is None:
         # Empty pipeline — nothing to run
-        return [], _IDLE_STATE, "Pipeline has no enabled blocks.", True
+        return [], _IDLE_STATE, "Pipeline has no enabled blocks.", True, _hrf_reset
 
     runner_id = str(uuid.uuid4())
     _INTERACTIVE_RUNNERS[runner_id] = (runner, context)
 
+    snirf_path = _extract_snirf_path(pipeline_state)
     state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
         "status": "running",
+        "snirf_path": snirf_path,
+    }
+
+    # Pre-populate available_conditions in hrf-runtime-state so the add-group
+    # callback can serve the correct dropdown options (T-028).
+    from nirspy.gui.components.condition_windows_editor import (
+        read_snirf_condition_names,
+    )
+    available_conditions = read_snirf_condition_names(snirf_path)
+    hrf_state: dict[str, Any] = {
+        "groups": [],
+        "available_conditions": available_conditions,
     }
 
     current_params = _extract_current_params(runner)
     modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path
     )
-    return modal_children, state, "", False
+    return modal_children, state, "", False, hrf_state
 
 
 # ---------------------------------------------------------------------------
@@ -201,13 +266,21 @@ def start_interactive_run(
     Output("run-success", "is_open", allow_duplicate=True),
     Input("runtime-advance-btn", "n_clicks"),
     State("interactive-exec-state", "data"),
+    State("hrf-runtime-state", "data"),
     prevent_initial_call=True,
 )
 def advance_run(
     n_clicks: int | None,
     exec_state: dict[str, Any] | None,
+    hrf_state: dict[str, Any] | None,
 ) -> tuple[Any, ...]:
-    """Execute the current block then advance to the next, or finalise the run."""
+    """Execute the current block then advance to the next, or finalise the run.
+
+    When the current block is ``block_average`` and the HRF specialized dialog
+    was shown, reads ``hrf-runtime-state`` to build a ``params_override`` with
+    ``per_condition_groups`` (T-028).  For all other blocks, no override is
+    applied (params come from the pipeline builder state).
+    """
     no_op = (
         no_update, no_update, no_update,
         no_update, no_update, no_update, no_update,
@@ -225,13 +298,23 @@ def advance_run(
         return no_op
     runner, context = entry
 
-    # Execute current block (no params_override in generic dialog — params are
-    # embedded in the dialog's param-input components but collecting their
-    # values generically via State(ALL) is handled in param_callbacks already
-    # updating pipeline-state. For the interactive run, we read the runner's
-    # own block params that were set when the pipeline was built.)
+    # Determine params_override: HRF groups dialog provides per_condition_groups
+    # for block_average; all other blocks execute without override.
+    current_block = runner.current_block
+    current_block_id: str = (
+        current_block.spec.block_id if current_block is not None else ""
+    )
+    params_override: dict[str, Any] | None = None
+    if current_block_id == "block_average":
+        params_override = build_hrf_params_override(hrf_state)
+        # Strip internal marker not recognised by BlockAverageParams
+        if params_override and "_hrf_mode" in params_override:
+            params_override = {
+                k: v for k, v in params_override.items() if k != "_hrf_mode"
+            }
+
     try:
-        runner.execute_current()
+        runner.execute_current(params_override)
     except NirspyError as exc:
         logger.exception("Interactive run: block execution failed")
         msg = get_user_message(exc)
@@ -272,14 +355,16 @@ def advance_run(
         )
 
     # More blocks — render next dialog
+    snirf_path_adv: str | None = exec_state.get("snirf_path")
     updated_state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
         "status": "running",
+        "snirf_path": snirf_path_adv,
     }
     current_params = _extract_current_params(runner)
     modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path_adv
     )
     return (
         modal_children,
@@ -382,13 +467,334 @@ def skip_block(
         }
         return [], completed_state, warning_msg, True
 
+    snirf_path_skip_raw = exec_state.get("snirf_path") if exec_state else None
+    snirf_path_skip: str | None = (
+        str(snirf_path_skip_raw) if snirf_path_skip_raw is not None else None
+    )
     updated_state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
         "status": "running",
+        "snirf_path": snirf_path_skip,
     }
     current_params = _extract_current_params(runner)
     modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path_skip
     )
     return modal_children, updated_state, warning_msg, True
+
+
+# ---------------------------------------------------------------------------
+# Callback 5 — probe_confirm_run  (ManualChannelExclude dialog)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("runtime-dialog-container", "children", allow_duplicate=True),
+    Output("interactive-exec-state", "data", allow_duplicate=True),
+    Output("run-results", "data", allow_duplicate=True),
+    Output("run-interactive-error", "children", allow_duplicate=True),
+    Output("run-interactive-error", "is_open", allow_duplicate=True),
+    Output("run-success", "children", allow_duplicate=True),
+    Output("run-success", "is_open", allow_duplicate=True),
+    Input("probe-confirm-btn", "n_clicks"),
+    State("interactive-exec-state", "data"),
+    State("probe-excluded-store", "data"),
+    prevent_initial_call=True,
+)
+def probe_confirm_run(
+    n_clicks: int | None,
+    exec_state: dict[str, Any] | None,
+    excluded_channels: list[str] | None,
+) -> tuple[Any, ...]:
+    """Execute ManualChannelExclude with the user's exclusion choices.
+
+    Reads the excluded channel prefixes from ``probe-excluded-store``,
+    builds a ``params_override``, calls ``execute_current(params_override)``
+    on the runner, then advances to the next block (or finalises the run).
+    """
+    no_op = (
+        no_update, no_update, no_update,
+        no_update, no_update, no_update, no_update,
+    )
+    if not n_clicks or not exec_state:
+        return no_op
+
+    runner_id: str = exec_state.get("runner_id", "")
+    status: str = exec_state.get("status", "idle")
+    if status != "running" or not runner_id:
+        return no_op
+
+    entry = _INTERACTIVE_RUNNERS.get(runner_id)
+    if entry is None:
+        return no_op
+    runner, context = entry
+
+    params_override = build_channels_override(excluded_channels or [])
+
+    try:
+        runner.execute_current(params_override)
+    except NirspyError as exc:
+        logger.exception("Interactive run (probe): block execution failed")
+        msg = get_user_message(exc)
+        return (
+            no_update, no_update, no_update,
+            render_error(msg), True,
+            no_update, no_update,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Interactive run (probe): unexpected error")
+        return (
+            no_update, no_update, no_update,
+            render_error("Unexpected error. Check the log for details."),
+            True, no_update, no_update,
+        )
+
+    spec = runner.next_block()
+    if spec is None or runner.is_complete:
+        context_extra: dict[str, Any] = context.extra
+        run_results = _finalise_run(runner, runner_id, context_extra)
+        completed_state: dict[str, Any] = {
+            "runner_id": "",
+            "current_idx": -1,
+            "status": "complete",
+        }
+        success_msg = (
+            f"Interactive run complete "
+            f"({run_results['blocks_executed']}/{run_results['total_blocks']} blocks)."
+        )
+        return (
+            [],
+            completed_state,
+            run_results,
+            "", False,
+            success_msg, True,
+        )
+
+    snirf_path_confirm: str | None = exec_state.get("snirf_path")
+    updated_state: dict[str, Any] = {
+        "runner_id": runner_id,
+        "current_idx": runner.current_idx,
+        "status": "running",
+        "snirf_path": snirf_path_confirm,
+    }
+    current_params = _extract_current_params(runner)
+    modal_children = _make_modal_children(
+        spec, runner.current_idx, runner.total_steps, current_params, snirf_path_confirm
+    )
+    return (
+        modal_children,
+        updated_state,
+        no_update,
+        "", False,
+        "", False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Callback 6 — probe_cancel_run  (ManualChannelExclude dialog cancel)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("runtime-dialog-container", "children", allow_duplicate=True),
+    Output("interactive-exec-state", "data", allow_duplicate=True),
+    Input("probe-cancel-btn", "n_clicks"),
+    State("interactive-exec-state", "data"),
+    prevent_initial_call=True,
+)
+def probe_cancel_run(
+    n_clicks: int | None,
+    exec_state: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Discard the runner and close the probe dialog."""
+    if not n_clicks or not exec_state:
+        return no_update, no_update
+
+    runner_id: str = exec_state.get("runner_id", "")
+    _INTERACTIVE_RUNNERS.pop(runner_id, None)
+
+    return [], _IDLE_STATE
+
+
+# ---------------------------------------------------------------------------
+# Callback 7 — probe_toggle_exclusion  (click-to-exclude on probe graph)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("probe-excluded-store", "data", allow_duplicate=True),
+    Output("probe-status-badge", "children", allow_duplicate=True),
+    Output("probe-dialog-graph", "figure", allow_duplicate=True),
+    Input("probe-dialog-graph", "clickData"),
+    State("probe-excluded-store", "data"),
+    State("probe-mode-store", "data"),
+    State("probe-snirf-path-store", "data"),
+    prevent_initial_call=True,
+)
+def probe_toggle_exclusion(
+    click_data: dict[str, Any] | None,
+    excluded_channels: list[str] | None,
+    mode: str | None,
+    snirf_path: str | None,
+) -> tuple[Any, Any, Any]:
+    """Toggle channel exclusion on click in view+exclude mode."""
+    from nirspy.gui.components.probe_dialog import (
+        _build_probe_figure,
+        _build_status_badge,
+    )
+
+    if not click_data or mode != "view":
+        return no_update, no_update, no_update
+
+    points = click_data.get("points", [])
+    if not points:
+        return no_update, no_update, no_update
+
+    point = points[0]
+    customdata = point.get("customdata")
+    if not customdata or not str(customdata).startswith(("S", "s")):
+        # Only toggle channel midpoints (S<n>_D<m> prefixes), not optodes
+        return no_update, no_update, no_update
+
+    channel_label = str(customdata)
+    # Only toggle S<n>_D<m> pairs (contains underscore), not plain S<n> or D<n>
+    if "_" not in channel_label:
+        return no_update, no_update, no_update
+
+    excluded_set = set(excluded_channels or [])
+    if channel_label in excluded_set:
+        excluded_set.discard(channel_label)
+    else:
+        excluded_set.add(channel_label)
+
+    new_excluded = list(excluded_set)
+
+    # Re-build figure
+    montage = None
+    if snirf_path:
+        from nirspy.io.montage import resolve_montage as _resolve
+        montage, _ = _resolve(snirf_path)
+
+    if montage is None:
+        return new_excluded, no_update, no_update
+
+    new_fig = _build_probe_figure(montage, excluded_set)
+    new_badge = _build_status_badge(excluded_set)
+
+    return new_excluded, new_badge.children, new_fig
+
+
+# ---------------------------------------------------------------------------
+# Callback 8 — probe_positioning_click  (2-click placement in positioning mode)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("probe-positioned-montage-store", "data", allow_duplicate=True),
+    Output("probe-selected-optode-store", "data", allow_duplicate=True),
+    Output("probe-dialog-graph", "figure", allow_duplicate=True),
+    Input("probe-dialog-graph", "clickData"),
+    State("probe-mode-store", "data"),
+    State("probe-selected-optode-store", "data"),
+    State("probe-positioned-montage-store", "data"),
+    State("probe-optode-selector", "value"),
+    prevent_initial_call=True,
+)
+def probe_positioning_click(
+    click_data: dict[str, Any] | None,
+    mode: str | None,
+    selected_optode: str | None,
+    positioned_montage: dict[str, Any] | None,
+    selector_value: str | None,
+) -> tuple[Any, Any, Any]:
+    """Handle 2-click placement in positioning mode.
+
+    First-click phase: if ``selected_optode`` is None, check ``selector_value``
+    instead — user picked from the dropdown.  Second click on the graph
+    places the optode at that coordinate.
+    """
+    from nirspy.gui.components.probe_dialog import _build_positioning_figure
+
+    if not click_data or mode != "positioning":
+        return no_update, no_update, no_update
+
+    # Determine which optode to place
+    optode_to_place = selected_optode or selector_value
+    if not optode_to_place:
+        return no_update, no_update, no_update
+
+    points = click_data.get("points", [])
+    if not points:
+        return no_update, no_update, no_update
+
+    point = points[0]
+    x = point.get("x")
+    y = point.get("y")
+    if x is None or y is None:
+        return no_update, no_update, no_update
+
+    # Place the optode
+    montage = dict(positioned_montage or {"sources": [], "detectors": []})
+    sources: list[list[float]] = list(montage.get("sources", []))
+    detectors: list[list[float]] = list(montage.get("detectors", []))
+
+    label_upper = optode_to_place.upper()
+    if label_upper.startswith("S"):
+        idx_str = label_upper[1:]
+        try:
+            idx = int(idx_str) - 1
+        except ValueError:
+            return no_update, no_update, no_update
+        while len(sources) <= idx:
+            sources.append([0.0, 0.0])
+        sources[idx] = [float(x), float(y)]
+    elif label_upper.startswith("D"):
+        idx_str = label_upper[1:]
+        try:
+            idx = int(idx_str) - 1
+        except ValueError:
+            return no_update, no_update, no_update
+        while len(detectors) <= idx:
+            detectors.append([0.0, 0.0])
+        detectors[idx] = [float(x), float(y)]
+    else:
+        return no_update, no_update, no_update
+
+    new_montage: dict[str, Any] = {"sources": sources, "detectors": detectors}
+    new_fig = _build_positioning_figure(new_montage, selected_optode=None)
+
+    return new_montage, None, new_fig
+
+
+# ---------------------------------------------------------------------------
+# Callback 9 — probe_save_positions  (save sidecar JSON)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("probe-mode-store", "data", allow_duplicate=True),
+    Output("probe-dialog-graph", "figure", allow_duplicate=True),
+    Input("probe-save-positions-btn", "n_clicks"),
+    State("probe-positioned-montage-store", "data"),
+    State("probe-snirf-path-store", "data"),
+    prevent_initial_call=True,
+)
+def probe_save_positions(
+    n_clicks: int | None,
+    positioned_montage: dict[str, Any] | None,
+    snirf_path: str | None,
+) -> tuple[Any, Any]:
+    """Save the in-progress positions to the sidecar JSON file."""
+    from nirspy.gui.components.probe_dialog import _build_probe_figure
+
+    if not n_clicks or not positioned_montage or not snirf_path:
+        return no_update, no_update
+
+    try:
+        save_sidecar_montage(snirf_path, positioned_montage)
+    except OSError:
+        logger.exception("probe_save_positions: failed to write sidecar")
+        return no_update, no_update
+
+    # Switch to view+exclude mode now that positions are saved
+    new_fig = _build_probe_figure(positioned_montage, set())
+    new_fig.update_layout(
+        title="Probe Layout — positions saved. Click channel to toggle exclusion."
+    )
+    return "view", new_fig
