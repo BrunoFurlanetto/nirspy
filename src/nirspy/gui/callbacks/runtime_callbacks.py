@@ -637,6 +637,8 @@ def probe_cancel_run(
     Output("probe-positioned-montage-store", "data", allow_duplicate=True),
     Output("probe-selected-optode-store", "data", allow_duplicate=True),
     Output("probe-dialog-graph", "figure", allow_duplicate=True),
+    Output("probe-anchors-store", "data", allow_duplicate=True),
+    Output("probe-anchor-badges", "children", allow_duplicate=True),
     Input("probe-dialog-graph", "clickData"),
     State("probe-mode-store", "data"),
     State("probe-selected-channel-store", "data"),
@@ -644,6 +646,7 @@ def probe_cancel_run(
     State("probe-excluded-store", "data"),
     State("probe-selected-optode-store", "data"),
     State("probe-optode-selector", "value"),
+    State("probe-anchors-store", "data"),
     prevent_initial_call=True,
 )
 def probe_graph_click(
@@ -654,31 +657,34 @@ def probe_graph_click(
     excluded_channels: list[str] | None,
     selected_optode: str | None,
     selector_value: str | None,
-) -> tuple[Any, Any, Any, Any]:
+    current_anchors: list[list[str]] | None = None,
+) -> tuple[Any, Any, Any, Any, Any, Any]:
     """Unified click handler dispatching by probe mode.
 
     **view** mode — two-click anchor/translation:
       1. Click channel midpoint to select it.
-      2. Click 10-20 reference to translate probe so channel lands there.
+      2. Click 10-20 reference to anchor (accumulates).
 
     **positioning** mode — two-click optode placement:
       1. Select optode from dropdown (or prior click).
       2. Click on graph to place it at that coordinate.
     """
-    _no = (no_update, no_update, no_update, no_update)
+    _no = (no_update, no_update, no_update, no_update, no_update, no_update)
 
     if not click_data:
         return _no
 
     if mode == "view":
         return _probe_click_view(
-            click_data, selected_channel, positioned_montage, excluded_channels
+            click_data, selected_channel, positioned_montage,
+            excluded_channels, current_anchors,
         )
 
     if mode == "positioning":
-        return _probe_click_positioning(
+        sel, mont, opt, fig = _probe_click_positioning(
             click_data, selected_optode, positioned_montage, selector_value
         )
+        return sel, mont, opt, fig, no_update, no_update
 
     return _no
 
@@ -688,15 +694,16 @@ def _probe_click_view(
     selected_channel: str | None,
     positioned_montage: dict[str, Any] | None,
     excluded_channels: list[str] | None,
-) -> tuple[Any, Any, Any, Any]:
+    current_anchors: list[list[str]] | None = None,
+) -> tuple[Any, Any, Any, Any, Any, Any]:
     from nirspy.gui.components.probe_dialog import (
-        _TEN_TWENTY,
         _TEN_TWENTY_CD_PREFIX,
+        _build_anchor_badges,
         _build_probe_figure,
-        translate_probe_to_anchor,
+        similarity_transform_probe,
     )
 
-    _no = (no_update, no_update, no_update, no_update)
+    _no = (no_update, no_update, no_update, no_update, no_update, no_update)
 
     if not positioned_montage:
         return _no
@@ -710,21 +717,22 @@ def _probe_click_view(
     cd = str(customdata)
 
     excluded_set = set(excluded_channels or [])
+    anchors = list(current_anchors or [])
 
     if cd.startswith(_TEN_TWENTY_CD_PREFIX):
         if not selected_channel:
             return _no
         ref_label = cd[len(_TEN_TWENTY_CD_PREFIX):]
-        target = _TEN_TWENTY.get(ref_label)
-        if target is None:
-            return _no
-        updated = translate_probe_to_anchor(
-            positioned_montage, selected_channel, target
-        )
+        # Add new anchor
+        new_anchor = [selected_channel, ref_label]
+        anchors.append(new_anchor)
+        # Apply similarity transform with all anchors
+        updated = similarity_transform_probe(positioned_montage, anchors)
+        badges = _build_anchor_badges(anchors)
         new_fig = _build_probe_figure(
-            updated, excluded_set, selected_channel=None
+            updated, excluded_set, selected_channel=None, anchors=anchors,
         )
-        return None, updated, no_update, new_fig
+        return None, updated, no_update, new_fig, anchors, badges.children
 
     if "_" in cd and cd.startswith(("S", "s")):
         new_selection = None if cd == selected_channel else cd
@@ -732,8 +740,11 @@ def _probe_click_view(
             positioned_montage,
             excluded_set,
             selected_channel=new_selection,
+            anchors=anchors,
         )
-        return new_selection, no_update, no_update, new_fig
+        return (
+            new_selection, no_update, no_update, new_fig, no_update, no_update
+        )
 
     return _no
 
@@ -868,3 +879,45 @@ def probe_save_positions(
         title="Probe Layout — positions saved. Click channel to toggle exclusion."
     )
     return "view", new_fig
+
+
+# ---------------------------------------------------------------------------
+# Callback 9 — probe_reset_anchors  (clear all anchors)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("probe-anchors-store", "data", allow_duplicate=True),
+    Output("probe-anchor-badges", "children", allow_duplicate=True),
+    Output("probe-dialog-graph", "figure", allow_duplicate=True),
+    Input("probe-reset-anchors-btn", "n_clicks"),
+    State("probe-positioned-montage-store", "data"),
+    State("probe-excluded-store", "data"),
+    State("probe-selected-channel-store", "data"),
+    State("probe-mode-store", "data"),
+    prevent_initial_call=True,
+)
+def probe_reset_anchors(
+    n_clicks: int | None,
+    positioned_montage: dict[str, Any] | None,
+    excluded_channels: list[str] | None,
+    selected_channel: str | None,
+    mode: str | None,
+) -> tuple[Any, Any, Any]:
+    """Clear all anchors and redraw the probe figure without anchor lines."""
+    from nirspy.gui.components.probe_dialog import (
+        _build_anchor_badges,
+        _build_probe_figure,
+    )
+
+    if not n_clicks or mode != "view" or positioned_montage is None:
+        return no_update, no_update, no_update
+
+    empty_anchors: list[list[str]] = []
+    badges = _build_anchor_badges(empty_anchors)
+    new_fig = _build_probe_figure(
+        positioned_montage,
+        set(excluded_channels or []),
+        selected_channel=selected_channel,
+        anchors=empty_anchors,
+    )
+    return empty_anchors, badges.children, new_fig

@@ -400,7 +400,7 @@ class TestProbePositionClick:
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         result = probe_graph_click(
-            None, "view", None, {"sources": [], "detectors": []}, [], None, None
+            None, "view", None, {"sources": [], "detectors": []}, [], None, None, None
         )
         assert all(r is no_update for r in result)
 
@@ -411,8 +411,8 @@ class TestProbePositionClick:
 
         montage = normalize_montage(resolve_montage(str(snirf_with_montage))[0])
         click_data = {"points": [{"customdata": "S1_D1"}]}
-        new_sel, _store, _optode, _fig = probe_graph_click(
-            click_data, "view", None, montage, [], None, None
+        new_sel, _store, _optode, _fig, _anchors, _badges = probe_graph_click(
+            click_data, "view", None, montage, [], None, None, None
         )
         assert new_sel == "S1_D1"
 
@@ -429,8 +429,8 @@ class TestProbePositionClick:
         montage = normalize_montage(resolve_montage(str(snirf_with_montage))[0])
         # Select S1_D1, then click Cz reference -- midpoint S1_D1 must land on Cz.
         click_data = {"points": [{"customdata": "1020:Cz"}]}
-        new_sel, updated, _optode, _fig = probe_graph_click(
-            click_data, "view", "S1_D1", montage, [], None, None
+        new_sel, updated, _optode, _fig, new_anchors, _badges = probe_graph_click(
+            click_data, "view", "S1_D1", montage, [], None, None, None
         )
         assert new_sel is None
         s1 = updated["sources"][0]
@@ -440,6 +440,8 @@ class TestProbePositionClick:
         target = _TEN_TWENTY["Cz"]
         assert abs(mx - target[0]) < 1e-9
         assert abs(my - target[1]) < 1e-9
+        assert len(new_anchors) == 1
+        assert new_anchors[0] == ["S1_D1", "Cz"]
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +457,7 @@ class TestProbePositioningClick:
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         result = probe_graph_click(
-            None, "positioning", None, {"sources": [], "detectors": []}, [], None, None
+            None, "positioning", None, {"sources": [], "detectors": []}, [], None, None, None
         )
         assert all(r is no_update for r in result)
 
@@ -466,7 +468,7 @@ class TestProbePositioningClick:
 
         click_data = {"points": [{"x": 0.1, "y": 0.1}]}
         result = probe_graph_click(
-            click_data, "view", None, None, [], "S1", None
+            click_data, "view", None, None, [], "S1", None, None
         )
         assert all(r is no_update for r in result)
 
@@ -478,7 +480,7 @@ class TestProbePositioningClick:
         click_data = {"points": [{"x": 0.1, "y": 0.1}]}
         result = probe_graph_click(
             click_data, "positioning", None,
-            {"sources": [], "detectors": []}, [], None, None
+            {"sources": [], "detectors": []}, [], None, None, None
         )
         assert all(r is no_update for r in result)
 
@@ -486,9 +488,9 @@ class TestProbePositioningClick:
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": 0.05, "y": 0.07}]}
-        _ch, new_montage, new_selected, _fig = probe_graph_click(
+        _ch, new_montage, new_selected, _fig, _a, _b = probe_graph_click(
             click_data, "positioning", None,
-            {"sources": [], "detectors": []}, [], "S1", None,
+            {"sources": [], "detectors": []}, [], "S1", None, None,
         )
         assert new_montage["sources"][0] == [0.05, 0.07]
         assert new_selected is None
@@ -497,9 +499,9 @@ class TestProbePositioningClick:
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": -0.03, "y": 0.02}]}
-        _ch, new_montage, _sel, _fig = probe_graph_click(
+        _ch, new_montage, _sel, _fig, _a, _b = probe_graph_click(
             click_data, "positioning", None,
-            {"sources": [], "detectors": []}, [], "D1", None,
+            {"sources": [], "detectors": []}, [], "D1", None, None,
         )
         assert new_montage["detectors"][0] == [-0.03, 0.02]
 
@@ -508,10 +510,10 @@ class TestProbePositioningClick:
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": 0.0, "y": 0.0}]}
-        _ch, new_montage, _, _fig = probe_graph_click(
+        _ch, new_montage, _, _fig, _a, _b = probe_graph_click(
             click_data, "positioning", None,
             {"sources": [], "detectors": []}, [],
-            None, "S2",
+            None, "S2", None,
         )
         assert len(new_montage["sources"]) == 2
         assert new_montage["sources"][1] == [0.0, 0.0]
@@ -776,5 +778,6 @@ class TestImportSanity:
             probe_confirm_run,
             probe_exclude_checklist,
             probe_graph_click,
+            probe_reset_anchors,
             probe_save_positions,
         )
