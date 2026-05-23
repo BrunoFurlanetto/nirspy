@@ -313,15 +313,17 @@ class TestBuildProbeFigure:
         trace_names = [t.name for t in fig.data]
         assert "Head" in trace_names
 
-    def test_sources_trace_present(self, sample_montage: dict[str, Any]) -> None:
+    def test_sources_shapes_present(self, sample_montage: dict[str, Any]) -> None:
+        # Sources/detectors are now rendered as editable shapes (circles/rects)
+        # so the user can drag them. Check at least one circle shape exists.
         fig = _build_probe_figure(sample_montage, set())
-        trace_names = [t.name for t in fig.data]
-        assert "Sources" in trace_names
+        shape_types = [s.type for s in (fig.layout.shapes or ())]
+        assert "circle" in shape_types
 
-    def test_detectors_trace_present(self, sample_montage: dict[str, Any]) -> None:
+    def test_detectors_shapes_present(self, sample_montage: dict[str, Any]) -> None:
         fig = _build_probe_figure(sample_montage, set())
-        trace_names = [t.name for t in fig.data]
-        assert "Detectors" in trace_names
+        shape_types = [s.type for s in (fig.layout.shapes or ())]
+        assert "rect" in shape_types
 
 
 # ---------------------------------------------------------------------------
@@ -353,58 +355,91 @@ class TestBuildChannelsOverride:
 # Callback: probe_toggle_exclusion
 # ---------------------------------------------------------------------------
 
-class TestProbeToggleExclusion:
-    """Tests for the click-to-exclude callback."""
+class TestProbeExcludeChecklist:
+    """Tests for the explicit-checklist exclusion callback."""
 
-    def test_no_click_data_returns_no_update(self) -> None:
+    def test_positioning_mode_returns_no_update(self) -> None:
         from dash import no_update
 
-        from nirspy.gui.callbacks.runtime_callbacks import probe_toggle_exclusion
+        from nirspy.gui.callbacks.runtime_callbacks import probe_exclude_checklist
 
-        result = probe_toggle_exclusion(None, [], "view", None)
+        result = probe_exclude_checklist(["S1_D1"], None, None, "positioning")
         assert all(r is no_update for r in result)
 
-    def test_positioning_mode_no_toggle(self) -> None:
-        """Click in positioning mode must not toggle exclusions."""
-        from dash import no_update
+    def test_check_adds_channel(self, snirf_with_montage: Path) -> None:
+        from nirspy.gui.callbacks.runtime_callbacks import probe_exclude_checklist
+        from nirspy.gui.components.probe_dialog import normalize_montage
+        from nirspy.io.montage import resolve_montage
 
-        from nirspy.gui.callbacks.runtime_callbacks import probe_toggle_exclusion
-
-        click_data = {"points": [{"customdata": "S1_D1", "x": 0.0, "y": 0.0}]}
-        result = probe_toggle_exclusion(click_data, [], "positioning", None)
-        assert all(r is no_update for r in result)
-
-    def test_click_on_source_not_channel_ignored(self) -> None:
-        """Clicking a plain source S1 (no underscore) must not toggle exclusions."""
-        from dash import no_update
-
-        from nirspy.gui.callbacks.runtime_callbacks import probe_toggle_exclusion
-
-        click_data = {"points": [{"customdata": "S1", "x": 0.0, "y": 0.0}]}
-        result = probe_toggle_exclusion(click_data, [], "view", None)
-        assert all(r is no_update for r in result)
-
-    def test_click_channel_adds_to_excluded(
-        self, snirf_with_montage: Path
-    ) -> None:
-        from nirspy.gui.callbacks.runtime_callbacks import probe_toggle_exclusion
-
-        click_data = {"points": [{"customdata": "S1_D1", "x": 0.0, "y": 0.0}]}
-        new_excluded, _badge_children, _fig = probe_toggle_exclusion(
-            click_data, [], "view", str(snirf_with_montage)
+        montage, _ = resolve_montage(str(snirf_with_montage))
+        montage = normalize_montage(montage)
+        new_excluded, _badge, _fig = probe_exclude_checklist(
+            ["S1_D1"], montage, None, "view"
         )
         assert "S1_D1" in new_excluded
 
-    def test_click_excluded_channel_removes_it(
-        self, snirf_with_montage: Path
-    ) -> None:
-        from nirspy.gui.callbacks.runtime_callbacks import probe_toggle_exclusion
+    def test_uncheck_removes_channel(self, snirf_with_montage: Path) -> None:
+        from nirspy.gui.callbacks.runtime_callbacks import probe_exclude_checklist
+        from nirspy.gui.components.probe_dialog import normalize_montage
+        from nirspy.io.montage import resolve_montage
 
-        click_data = {"points": [{"customdata": "S1_D1", "x": 0.0, "y": 0.0}]}
-        new_excluded, _badge_children, _fig = probe_toggle_exclusion(
-            click_data, ["S1_D1"], "view", str(snirf_with_montage)
+        montage, _ = resolve_montage(str(snirf_with_montage))
+        montage = normalize_montage(montage)
+        new_excluded, _badge, _fig = probe_exclude_checklist(
+            [], montage, None, "view"
         )
         assert "S1_D1" not in new_excluded
+
+
+class TestProbePositionClick:
+    """Tests for the 2-click positioning workflow."""
+
+    def test_no_click_returns_no_update(self) -> None:
+        from dash import no_update
+
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
+
+        result = probe_graph_click(
+            None, "view", None, {"sources": [], "detectors": []}, [], None, None
+        )
+        assert all(r is no_update for r in result)
+
+    def test_channel_click_selects(self, snirf_with_montage: Path) -> None:
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
+        from nirspy.gui.components.probe_dialog import normalize_montage
+        from nirspy.io.montage import resolve_montage
+
+        montage = normalize_montage(resolve_montage(str(snirf_with_montage))[0])
+        click_data = {"points": [{"customdata": "S1_D1"}]}
+        new_sel, _store, _optode, _fig = probe_graph_click(
+            click_data, "view", None, montage, [], None, None
+        )
+        assert new_sel == "S1_D1"
+
+    def test_ref_click_translates_probe(
+        self, snirf_with_montage: Path
+    ) -> None:
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
+        from nirspy.gui.components.probe_dialog import (
+            _TEN_TWENTY,
+            normalize_montage,
+        )
+        from nirspy.io.montage import resolve_montage
+
+        montage = normalize_montage(resolve_montage(str(snirf_with_montage))[0])
+        # Select S1_D1, then click Cz reference -- midpoint S1_D1 must land on Cz.
+        click_data = {"points": [{"customdata": "1020:Cz"}]}
+        new_sel, updated, _optode, _fig = probe_graph_click(
+            click_data, "view", "S1_D1", montage, [], None, None
+        )
+        assert new_sel is None
+        s1 = updated["sources"][0]
+        d1 = updated["detectors"][0]
+        mx = (s1[0] + d1[0]) / 2.0
+        my = (s1[1] + d1[1]) / 2.0
+        target = _TEN_TWENTY["Cz"]
+        assert abs(mx - target[0]) < 1e-9
+        assert abs(my - target[1]) < 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -417,75 +452,67 @@ class TestProbePositioningClick:
     def test_no_click_data_returns_no_update(self) -> None:
         from dash import no_update
 
-        from nirspy.gui.callbacks.runtime_callbacks import probe_positioning_click
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
-        result = probe_positioning_click(
-            None, "positioning", None, {"sources": [], "detectors": []}, None
+        result = probe_graph_click(
+            None, "positioning", None, {"sources": [], "detectors": []}, [], None, None
         )
         assert all(r is no_update for r in result)
 
     def test_view_mode_ignored(self) -> None:
         from dash import no_update
 
-        from nirspy.gui.callbacks.runtime_callbacks import probe_positioning_click
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": 0.1, "y": 0.1}]}
-        result = probe_positioning_click(
-            click_data, "view", "S1", {"sources": [], "detectors": []}, None
+        result = probe_graph_click(
+            click_data, "view", None, None, [], "S1", None
         )
         assert all(r is no_update for r in result)
 
     def test_no_optode_selected_returns_no_update(self) -> None:
         from dash import no_update
 
-        from nirspy.gui.callbacks.runtime_callbacks import probe_positioning_click
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": 0.1, "y": 0.1}]}
-        result = probe_positioning_click(
-            click_data, "positioning", None, {"sources": [], "detectors": []}, None
+        result = probe_graph_click(
+            click_data, "positioning", None,
+            {"sources": [], "detectors": []}, [], None, None
         )
         assert all(r is no_update for r in result)
 
     def test_places_source_on_click(self) -> None:
-        from nirspy.gui.callbacks.runtime_callbacks import probe_positioning_click
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": 0.05, "y": 0.07}]}
-        new_montage, new_selected, _fig = probe_positioning_click(
-            click_data,
-            "positioning",
-            "S1",
-            {"sources": [], "detectors": []},
-            None,
+        _ch, new_montage, new_selected, _fig = probe_graph_click(
+            click_data, "positioning", None,
+            {"sources": [], "detectors": []}, [], "S1", None,
         )
         assert new_montage["sources"][0] == [0.05, 0.07]
         assert new_selected is None
 
     def test_places_detector_on_click(self) -> None:
-        from nirspy.gui.callbacks.runtime_callbacks import probe_positioning_click
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": -0.03, "y": 0.02}]}
-        new_montage, _sel, _fig = probe_positioning_click(
-            click_data,
-            "positioning",
-            "D1",
-            {"sources": [], "detectors": []},
-            None,
+        _ch, new_montage, _sel, _fig = probe_graph_click(
+            click_data, "positioning", None,
+            {"sources": [], "detectors": []}, [], "D1", None,
         )
         assert new_montage["detectors"][0] == [-0.03, 0.02]
 
     def test_selector_value_used_when_no_selected_optode(self) -> None:
         """When selected_optode is None but selector_value is set, use selector."""
-        from nirspy.gui.callbacks.runtime_callbacks import probe_positioning_click
+        from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
 
         click_data = {"points": [{"x": 0.0, "y": 0.0}]}
-        new_montage, _, _fig = probe_positioning_click(
-            click_data,
-            "positioning",
-            None,  # selected_optode = None
-            {"sources": [], "detectors": []},
-            "S2",  # selector_value
+        _ch, new_montage, _, _fig = probe_graph_click(
+            click_data, "positioning", None,
+            {"sources": [], "detectors": []}, [],
+            None, "S2",
         )
-        # S2 is index 1 (0-based), so sources list should have 2 entries
         assert len(new_montage["sources"]) == 2
         assert new_montage["sources"][1] == [0.0, 0.0]
 
@@ -747,7 +774,7 @@ class TestImportSanity:
         from nirspy.gui.callbacks.runtime_callbacks import (  # noqa: F401
             probe_cancel_run,
             probe_confirm_run,
-            probe_positioning_click,
+            probe_exclude_checklist,
+            probe_graph_click,
             probe_save_positions,
-            probe_toggle_exclusion,
         )

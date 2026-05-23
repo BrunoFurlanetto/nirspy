@@ -629,121 +629,139 @@ def probe_cancel_run(
 
 
 # ---------------------------------------------------------------------------
-# Callback 7 — probe_toggle_exclusion  (click-to-exclude on probe graph)
+# Callback 7 — probe_graph_click  (unified click handler for view + positioning)
 # ---------------------------------------------------------------------------
 
 @callback(
-    Output("probe-excluded-store", "data", allow_duplicate=True),
-    Output("probe-status-badge", "children", allow_duplicate=True),
-    Output("probe-dialog-graph", "figure", allow_duplicate=True),
-    Input("probe-dialog-graph", "clickData"),
-    State("probe-excluded-store", "data"),
-    State("probe-mode-store", "data"),
-    State("probe-snirf-path-store", "data"),
-    prevent_initial_call=True,
-)
-def probe_toggle_exclusion(
-    click_data: dict[str, Any] | None,
-    excluded_channels: list[str] | None,
-    mode: str | None,
-    snirf_path: str | None,
-) -> tuple[Any, Any, Any]:
-    """Toggle channel exclusion on click in view+exclude mode."""
-    from nirspy.gui.components.probe_dialog import (
-        _build_probe_figure,
-        _build_status_badge,
-    )
-
-    if not click_data or mode != "view":
-        return no_update, no_update, no_update
-
-    points = click_data.get("points", [])
-    if not points:
-        return no_update, no_update, no_update
-
-    point = points[0]
-    customdata = point.get("customdata")
-    if not customdata or not str(customdata).startswith(("S", "s")):
-        # Only toggle channel midpoints (S<n>_D<m> prefixes), not optodes
-        return no_update, no_update, no_update
-
-    channel_label = str(customdata)
-    # Only toggle S<n>_D<m> pairs (contains underscore), not plain S<n> or D<n>
-    if "_" not in channel_label:
-        return no_update, no_update, no_update
-
-    excluded_set = set(excluded_channels or [])
-    if channel_label in excluded_set:
-        excluded_set.discard(channel_label)
-    else:
-        excluded_set.add(channel_label)
-
-    new_excluded = list(excluded_set)
-
-    # Re-build figure
-    montage = None
-    if snirf_path:
-        from nirspy.io.montage import resolve_montage as _resolve
-        montage, _ = _resolve(snirf_path)
-
-    if montage is None:
-        return new_excluded, no_update, no_update
-
-    new_fig = _build_probe_figure(montage, excluded_set)
-    new_badge = _build_status_badge(excluded_set)
-
-    return new_excluded, new_badge.children, new_fig
-
-
-# ---------------------------------------------------------------------------
-# Callback 8 — probe_positioning_click  (2-click placement in positioning mode)
-# ---------------------------------------------------------------------------
-
-@callback(
+    Output("probe-selected-channel-store", "data", allow_duplicate=True),
     Output("probe-positioned-montage-store", "data", allow_duplicate=True),
     Output("probe-selected-optode-store", "data", allow_duplicate=True),
     Output("probe-dialog-graph", "figure", allow_duplicate=True),
     Input("probe-dialog-graph", "clickData"),
     State("probe-mode-store", "data"),
-    State("probe-selected-optode-store", "data"),
+    State("probe-selected-channel-store", "data"),
     State("probe-positioned-montage-store", "data"),
+    State("probe-excluded-store", "data"),
+    State("probe-selected-optode-store", "data"),
     State("probe-optode-selector", "value"),
     prevent_initial_call=True,
 )
-def probe_positioning_click(
+def probe_graph_click(
     click_data: dict[str, Any] | None,
     mode: str | None,
-    selected_optode: str | None,
+    selected_channel: str | None,
     positioned_montage: dict[str, Any] | None,
+    excluded_channels: list[str] | None,
+    selected_optode: str | None,
     selector_value: str | None,
-) -> tuple[Any, Any, Any]:
-    """Handle 2-click placement in positioning mode.
+) -> tuple[Any, Any, Any, Any]:
+    """Unified click handler dispatching by probe mode.
 
-    First-click phase: if ``selected_optode`` is None, check ``selector_value``
-    instead — user picked from the dropdown.  Second click on the graph
-    places the optode at that coordinate.
+    **view** mode — two-click anchor/translation:
+      1. Click channel midpoint to select it.
+      2. Click 10-20 reference to translate probe so channel lands there.
+
+    **positioning** mode — two-click optode placement:
+      1. Select optode from dropdown (or prior click).
+      2. Click on graph to place it at that coordinate.
     """
-    from nirspy.gui.components.probe_dialog import _build_positioning_figure
+    _no = (no_update, no_update, no_update, no_update)
 
-    if not click_data or mode != "positioning":
-        return no_update, no_update, no_update
+    if not click_data:
+        return _no
 
-    # Determine which optode to place
-    optode_to_place = selected_optode or selector_value
-    if not optode_to_place:
-        return no_update, no_update, no_update
+    if mode == "view":
+        return _probe_click_view(
+            click_data, selected_channel, positioned_montage, excluded_channels
+        )
+
+    if mode == "positioning":
+        return _probe_click_positioning(
+            click_data, selected_optode, positioned_montage, selector_value
+        )
+
+    return _no
+
+
+def _probe_click_view(
+    click_data: dict[str, Any],
+    selected_channel: str | None,
+    positioned_montage: dict[str, Any] | None,
+    excluded_channels: list[str] | None,
+) -> tuple[Any, Any, Any, Any]:
+    from nirspy.gui.components.probe_dialog import (
+        _TEN_TWENTY,
+        _TEN_TWENTY_CD_PREFIX,
+        _build_probe_figure,
+        translate_probe_to_anchor,
+    )
+
+    _no = (no_update, no_update, no_update, no_update)
+
+    if not positioned_montage:
+        return _no
 
     points = click_data.get("points", [])
     if not points:
-        return no_update, no_update, no_update
+        return _no
+    customdata = points[0].get("customdata")
+    if not customdata:
+        return _no
+    cd = str(customdata)
+
+    excluded_set = set(excluded_channels or [])
+
+    if cd.startswith(_TEN_TWENTY_CD_PREFIX):
+        if not selected_channel:
+            return _no
+        ref_label = cd[len(_TEN_TWENTY_CD_PREFIX):]
+        target = _TEN_TWENTY.get(ref_label)
+        if target is None:
+            return _no
+        updated = translate_probe_to_anchor(
+            positioned_montage, selected_channel, target
+        )
+        new_fig = _build_probe_figure(
+            updated, excluded_set, selected_channel=None
+        )
+        return None, updated, no_update, new_fig
+
+    if "_" in cd and cd.startswith(("S", "s")):
+        new_selection = None if cd == selected_channel else cd
+        new_fig = _build_probe_figure(
+            positioned_montage,
+            excluded_set,
+            selected_channel=new_selection,
+        )
+        return new_selection, no_update, no_update, new_fig
+
+    return _no
+
+
+def _probe_click_positioning(
+    click_data: dict[str, Any],
+    selected_optode: str | None,
+    positioned_montage: dict[str, Any] | None,
+    selector_value: str | None,
+) -> tuple[Any, Any, Any, Any]:
+    from nirspy.gui.components.probe_dialog import _build_positioning_figure
+
+    _no = (no_update, no_update, no_update, no_update)
+
+    optode_to_place = selected_optode or selector_value
+    if not optode_to_place:
+        return _no
+
+    points = click_data.get("points", [])
+    if not points:
+        return _no
 
     point = points[0]
     x = point.get("x")
     y = point.get("y")
     if x is None or y is None:
-        return no_update, no_update, no_update
+        return _no
 
-    # Place the optode
     montage = dict(positioned_montage or {"sources": [], "detectors": []})
     sources: list[list[float]] = list(montage.get("sources", []))
     detectors: list[list[float]] = list(montage.get("detectors", []))
@@ -754,7 +772,7 @@ def probe_positioning_click(
         try:
             idx = int(idx_str) - 1
         except ValueError:
-            return no_update, no_update, no_update
+            return _no
         while len(sources) <= idx:
             sources.append([0.0, 0.0])
         sources[idx] = [float(x), float(y)]
@@ -763,21 +781,60 @@ def probe_positioning_click(
         try:
             idx = int(idx_str) - 1
         except ValueError:
-            return no_update, no_update, no_update
+            return _no
         while len(detectors) <= idx:
             detectors.append([0.0, 0.0])
         detectors[idx] = [float(x), float(y)]
     else:
-        return no_update, no_update, no_update
+        return _no
 
     new_montage: dict[str, Any] = {"sources": sources, "detectors": detectors}
     new_fig = _build_positioning_figure(new_montage, selected_optode=None)
 
-    return new_montage, None, new_fig
+    return no_update, new_montage, None, new_fig
 
 
 # ---------------------------------------------------------------------------
-# Callback 9 — probe_save_positions  (save sidecar JSON)
+# Callback 7b — probe_exclude_checklist  (explicit exclusion via checkbox list)
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("probe-excluded-store", "data", allow_duplicate=True),
+    Output("probe-status-badge", "children", allow_duplicate=True),
+    Output("probe-dialog-graph", "figure", allow_duplicate=True),
+    Input("probe-exclude-checklist", "value"),
+    State("probe-positioned-montage-store", "data"),
+    State("probe-selected-channel-store", "data"),
+    State("probe-mode-store", "data"),
+    prevent_initial_call=True,
+)
+def probe_exclude_checklist(
+    checked: list[str] | None,
+    positioned_montage: dict[str, Any] | None,
+    selected_channel: str | None,
+    mode: str | None,
+) -> tuple[Any, Any, Any]:
+    """Update the excluded set + figure from the explicit checklist."""
+    from nirspy.gui.components.probe_dialog import (
+        _build_probe_figure,
+        _build_status_badge,
+    )
+
+    if mode != "view" or positioned_montage is None:
+        return no_update, no_update, no_update
+
+    new_excluded = list(checked or [])
+    new_fig = _build_probe_figure(
+        positioned_montage,
+        set(new_excluded),
+        selected_channel=selected_channel,
+    )
+    new_badge = _build_status_badge(set(new_excluded))
+    return new_excluded, new_badge.children, new_fig
+
+
+# ---------------------------------------------------------------------------
+# Callback 8 — probe_save_positions  (save sidecar JSON)
 # ---------------------------------------------------------------------------
 
 @callback(
