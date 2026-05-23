@@ -302,17 +302,34 @@ class BlockAverageBlock:
         else:
             used_event_id = event_id
 
-        # Validate per_condition_windows keys exist in event_id
-        if self.params.per_condition_windows:
-            unknown = (
-                set(self.params.per_condition_windows) - set(used_event_id)
-            )
+        # Filter per_condition_windows to only keys present in event_id.
+        # Stale keys can appear when the user swaps the SNIRF file while
+        # per-condition windows are already configured. Raising would give
+        # a confusing error; silently discarding (with warning) is correct
+        # because the GUI sync callback (sync_conditions_on_path_change)
+        # already removed them in the GUI path -- this is defence-in-depth
+        # for YAML-loaded pipelines or any other path that bypasses the GUI.
+        # Restores T-012 hotfix (2d7b63d) regressed by T-024 (#37).
+        filtered_pcw: dict[str, ConditionWindow] = dict(
+            self.params.per_condition_windows
+        )
+        if filtered_pcw:
+            unknown = set(filtered_pcw) - set(used_event_id)
             if unknown:
-                raise ValidationError(
+                import warnings
+
+                warnings.warn(
                     f"BlockAverageBlock: per_condition_windows contains "
-                    f"condition(s) {sorted(unknown)} not found in "
-                    f"event_id {sorted(used_event_id.keys())}."
+                    f"condition(s) {sorted(unknown)} not found in the current "
+                    f"SNIRF event_id {sorted(used_event_id.keys())}. "
+                    f"These entries will be skipped (stale keys from a "
+                    f"previous SNIRF file).",
+                    UserWarning,
+                    stacklevel=2,
                 )
+                filtered_pcw = {
+                    k: v for k, v in filtered_pcw.items() if k in used_event_id
+                }
 
         # Build rejection dict
         reject: dict[str, float] | None = None
@@ -349,7 +366,7 @@ class BlockAverageBlock:
                 metadata[f"n_epochs_{grp_label}"] = len(ep.events)
 
         # ---- Per-condition path vs legacy single-Epochs path ----
-        elif self.params.per_condition_windows:
+        elif filtered_pcw:
             default_window = (
                 self.params.tmin,
                 self.params.tmax,
@@ -360,7 +377,7 @@ class BlockAverageBlock:
                 raw,
                 used_event_id,
                 default_window=default_window,
-                per_condition_windows=self.params.per_condition_windows,
+                per_condition_windows=filtered_pcw,
                 reject=reject,
             )
             evoked_dict = self._adapter.average_epochs(epochs_dict)
@@ -372,8 +389,8 @@ class BlockAverageBlock:
             metadata = {}
 
             for cond in used_event_id:
-                if cond in self.params.per_condition_windows:
-                    w = self.params.per_condition_windows[cond]
+                if cond in filtered_pcw:
+                    w = filtered_pcw[cond]
                     windows_used[cond] = {
                         "tmin": w.tmin,
                         "tmax": w.tmax,
