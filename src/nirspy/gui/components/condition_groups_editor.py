@@ -40,6 +40,7 @@ from typing import Any
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from nirspy.gui.components.condition_timeline import render_condition_timeline
 from nirspy.gui.components.param_metadata import metadata_for
 
 # ---------------------------------------------------------------------------
@@ -131,6 +132,7 @@ def _render_group_card(
     group_idx: int,
     label: str,
     condition_names: list[str],
+    event_indices: list[int],
     time_vals: dict[str, float],
     available_conditions: list[str] | None,
     duplicated_conditions: set[str],
@@ -184,6 +186,56 @@ def _render_group_card(
             )
         ]
 
+    # Determine mode: event_indices mode vs condition_names mode
+    timeline_mode = bool(event_indices)
+
+    if timeline_mode:
+        # Show a read-only badge — editing happens via the timeline chart
+        conditions_section: list[Any] = [
+            html.Small("Occurrences (timeline mode)", className="fw-bold d-block mb-1"),
+            dbc.Badge(
+                f"{len(event_indices)} occurrence(s) selected via timeline",
+                color="primary",
+                className="mb-1",
+            ),
+            html.Small(
+                f"Indices: {event_indices}",
+                className="text-muted d-block",
+            ),
+            # Hidden dropdown still registered so callbacks don't break
+            dcc.Dropdown(
+                id=group_conditions_id(instance_id, group_idx),
+                options=[],
+                value=[],
+                multi=True,
+                style={"display": "none"},
+            ),
+        ]
+    else:
+        conditions_section = [
+            html.Small("Conditions", className="fw-bold d-block mb-1"),
+            *cond_hint,
+            dcc.Dropdown(
+                id=group_conditions_id(instance_id, group_idx),
+                options=options,
+                value=condition_names,
+                multi=True,
+                placeholder="Select conditions for this group…",
+                style=dropdown_style,
+            ),
+            html.Div(
+                [
+                    html.Small(
+                        f"Conflict: {', '.join(sorted(invalid))} "
+                        "already in another group.",
+                        className="text-danger d-block mt-1",
+                    )
+                ]
+                if invalid
+                else [],
+            ),
+        ]
+
     card_body = dbc.CardBody(
         [
             dbc.Row(
@@ -216,27 +268,7 @@ def _render_group_card(
                 ],
                 className="mb-2 g-2",
             ),
-            html.Small("Conditions", className="fw-bold d-block mb-1"),
-            *cond_hint,
-            dcc.Dropdown(
-                id=group_conditions_id(instance_id, group_idx),
-                options=options,
-                value=condition_names,
-                multi=True,
-                placeholder="Select conditions for this group…",
-                style=dropdown_style,
-            ),
-            html.Div(
-                [
-                    html.Small(
-                        f"Conflict: {', '.join(sorted(invalid))} "
-                        "already in another group.",
-                        className="text-danger d-block mt-1",
-                    )
-                ]
-                if invalid
-                else [],
-            ),
+            *conditions_section,
             dbc.Row(
                 time_inputs,
                 className="mt-2 g-1",
@@ -283,6 +315,8 @@ def render_condition_groups_editor(
     instance_id: str,
     current_groups: dict[str, Any] | None,
     available_conditions: list[str] | None = None,
+    snirf_path: str | None = None,
+    active_group_label: str | None = None,
 ) -> html.Div:
     """Render the static condition-groups editor for the builder.
 
@@ -294,16 +328,22 @@ def render_condition_groups_editor(
     current_groups:
         Current ``per_condition_groups`` dict.  Keys are group labels;
         values are ``ConditionGroup``-like objects or plain dicts with
-        fields ``condition_names``, ``tmin``, ``tmax``,
+        fields ``condition_names``, ``event_indices``, ``tmin``, ``tmax``,
         ``baseline_tmin``, ``baseline_tmax``.
     available_conditions:
         Condition names sourced from the upstream LoadSnirf file.
         ``None`` when no SNIRF is reachable yet.
+    snirf_path:
+        Absolute path to the SNIRF file (for the timeline chart).
+        ``None`` hides the timeline and shows a placeholder.
+    active_group_label:
+        Currently active group for click-to-toggle on the timeline.
+        ``None`` disables toggle.
 
     Returns
     -------
     html.Div
-        The full groups editor widget.
+        The full groups editor widget including the condition timeline.
     """
     cg = current_groups or {}
 
@@ -316,6 +356,7 @@ def render_condition_groups_editor(
                 {
                     "label": grp_label,
                     "condition_names": list(grp_val.condition_names),
+                    "event_indices": list(grp_val.event_indices),
                     "tmin": grp_val.tmin,
                     "tmax": grp_val.tmax,
                     "baseline_tmin": grp_val.baseline_tmin,
@@ -326,15 +367,24 @@ def render_condition_groups_editor(
             groups_list.append(
                 {
                     "label": grp_label,
-                    "condition_names": list(grp_val.get("condition_names", [])),
-                    "tmin": float(grp_val.get("tmin", -2.0)),
-                    "tmax": float(grp_val.get("tmax", 18.0)),
-                    "baseline_tmin": float(grp_val.get("baseline_tmin", -2.0)),
-                    "baseline_tmax": float(grp_val.get("baseline_tmax", 0.0)),
+                    "condition_names": list(grp_val.get("condition_names") or []),
+                    "event_indices": list(grp_val.get("event_indices") or []),
+                    "tmin": float(grp_val.get("tmin") or -2.0),
+                    "tmax": float(grp_val.get("tmax") or 18.0),
+                    "baseline_tmin": float(grp_val.get("baseline_tmin") or -2.0),
+                    "baseline_tmax": float(grp_val.get("baseline_tmax") or 0.0),
                 }
             )
 
     duplicated = _collect_duplicates(groups_list)
+
+    # Timeline widget (above the group cards)
+    timeline_widget = render_condition_timeline(
+        instance_id=instance_id,
+        snirf_path=snirf_path,
+        groups_state=cg,
+        active_group_label=active_group_label,
+    )
 
     # Build group cards
     cards: list[Any] = []
@@ -345,6 +395,7 @@ def render_condition_groups_editor(
                 group_idx=idx,
                 label=g["label"],
                 condition_names=g["condition_names"],
+                event_indices=g["event_indices"],
                 time_vals={
                     "tmin": g["tmin"],
                     "tmax": g["tmax"],
@@ -391,6 +442,7 @@ def render_condition_groups_editor(
 
     return html.Div(
         [
+            timeline_widget,
             *no_groups_hint,
             *cards,
             add_btn,

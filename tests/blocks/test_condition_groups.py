@@ -1,4 +1,4 @@
-"""Tests for ConditionGroup domain + engine (T-024)."""
+"""Tests for ConditionGroup domain + engine (T-024, T-030)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from nirspy.domain.exceptions import ValidationError
 class TestConditionGroup:
     """ConditionGroup dataclass basics."""
 
-    def test_creation(self) -> None:
+    def test_creation_with_condition_names(self) -> None:
         grp = ConditionGroup(
             label="short",
             condition_names=["S1", "S2"],
@@ -26,7 +26,20 @@ class TestConditionGroup:
         )
         assert grp.label == "short"
         assert grp.condition_names == ["S1", "S2"]
+        assert grp.event_indices == []
         assert grp.tmin == -2.0
+
+    def test_creation_with_event_indices(self) -> None:
+        """T-030: ConditionGroup with event_indices (timeline mode)."""
+        grp = ConditionGroup(
+            label="selected",
+            event_indices=[0, 2, 4],
+            tmin=-2.0, tmax=10.0,
+            baseline_tmin=-2.0, baseline_tmax=0.0,
+        )
+        assert grp.label == "selected"
+        assert grp.event_indices == [0, 2, 4]
+        assert grp.condition_names == []
 
     def test_frozen(self) -> None:
         grp = ConditionGroup(
@@ -36,6 +49,62 @@ class TestConditionGroup:
         )
         with pytest.raises(AttributeError):
             grp.label = "y"  # type: ignore[misc]
+
+    # --- D8: mutual exclusion condition_names / event_indices ---
+
+    def test_both_non_empty_raises(self) -> None:
+        """D8: both condition_names and event_indices non-empty -> ValidationError."""
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            ConditionGroup(
+                label="bad",
+                condition_names=["S1"],
+                event_indices=[0, 1],
+                tmin=-2.0, tmax=10.0,
+                baseline_tmin=-2.0, baseline_tmax=0.0,
+            )
+
+    def test_both_empty_raises(self) -> None:
+        """D8: both condition_names and event_indices empty -> ValidationError."""
+        with pytest.raises(ValidationError, match="either condition_names or event_indices"):
+            ConditionGroup(
+                label="empty",
+                tmin=-2.0, tmax=10.0,
+                baseline_tmin=-2.0, baseline_tmax=0.0,
+            )
+
+    def test_only_condition_names_ok(self) -> None:
+        grp = ConditionGroup(
+            label="names-only",
+            condition_names=["S1"],
+            tmin=-2.0, tmax=10.0,
+            baseline_tmin=-2.0, baseline_tmax=0.0,
+        )
+        assert grp.condition_names == ["S1"]
+        assert grp.event_indices == []
+
+    def test_only_event_indices_ok(self) -> None:
+        grp = ConditionGroup(
+            label="indices-only",
+            event_indices=[1, 3],
+            tmin=-2.0, tmax=10.0,
+            baseline_tmin=-2.0, baseline_tmax=0.0,
+        )
+        assert grp.event_indices == [1, 3]
+        assert grp.condition_names == []
+
+    # --- creation: back-compat with T-024 (condition_names + no event_indices) ---
+
+    def test_creation(self) -> None:
+        """Alias kept for back-compat with T-024 tests."""
+        grp = ConditionGroup(
+            label="short",
+            condition_names=["S1", "S2"],
+            tmin=-2.0, tmax=10.0,
+            baseline_tmin=-2.0, baseline_tmax=0.0,
+        )
+        assert grp.label == "short"
+        assert grp.condition_names == ["S1", "S2"]
+        assert grp.tmin == -2.0
 
 
 class TestBlockAverageParamsMutualExclusion:
@@ -96,6 +165,83 @@ class TestConditionGroupCoercion:
         assert isinstance(grp, ConditionGroup)
         assert grp.label == "short"
         assert grp.condition_names == ["S1", "S2"]
+
+
+class TestConditionGroupEventIndicesYamlRoundTrip:
+    """YAML round-trip for ConditionGroup with event_indices (T-030)."""
+
+    def test_round_trip_event_indices(self, tmp_path: Any) -> None:
+        from pathlib import Path
+
+        from nirspy.blocks import registry
+        from nirspy.blocks.analysis import BlockAverageBlock
+        from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
+        from nirspy.domain.pipeline import Pipeline
+        from nirspy.io.yaml_serializer import dump_pipeline, load_pipeline
+
+        params = BlockAverageParams(
+            per_condition_groups={
+                "selected": ConditionGroup(
+                    label="selected",
+                    event_indices=[0, 2, 4],
+                    tmin=-2.0, tmax=10.0,
+                    baseline_tmin=-2.0, baseline_tmax=0.0,
+                ),
+            }
+        )
+        pipeline = Pipeline(
+            name="test-event-indices",
+            steps=[
+                LoadSnirfBlock(LoadSnirfParams(path="/tmp/test.snirf")),
+                BlockAverageBlock(params),
+            ],
+        )
+
+        path = Path(tmp_path) / "test_event_indices.yml"
+        dump_pipeline(pipeline, path)
+        loaded = load_pipeline(path, registry)
+
+        ba_block = loaded.steps[1]
+        loaded_params = ba_block.params
+        assert "selected" in loaded_params.per_condition_groups
+        grp = loaded_params.per_condition_groups["selected"]
+        assert isinstance(grp, ConditionGroup)
+        assert grp.event_indices == [0, 2, 4]
+        assert grp.condition_names == []
+
+    def test_round_trip_event_indices_idempotent(self, tmp_path: Any) -> None:
+        from pathlib import Path
+
+        from nirspy.blocks import registry
+        from nirspy.blocks.analysis import BlockAverageBlock
+        from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
+        from nirspy.domain.pipeline import Pipeline
+        from nirspy.io.yaml_serializer import dump_pipeline, load_pipeline
+
+        params = BlockAverageParams(
+            per_condition_groups={
+                "g": ConditionGroup(
+                    label="g",
+                    event_indices=[1, 3],
+                    tmin=-1.0, tmax=5.0,
+                    baseline_tmin=-1.0, baseline_tmax=0.0,
+                )
+            }
+        )
+        pipeline = Pipeline(
+            name="idem-indices",
+            steps=[
+                LoadSnirfBlock(LoadSnirfParams(path="/tmp/x.snirf")),
+                BlockAverageBlock(params),
+            ],
+        )
+
+        p1 = Path(tmp_path) / "a.yml"
+        p2 = Path(tmp_path) / "b.yml"
+        dump_pipeline(pipeline, p1)
+        loaded = load_pipeline(p1, registry)
+        dump_pipeline(loaded, p2)
+        assert p1.read_text() == p2.read_text()
 
 
 class TestConditionGroupYamlRoundTrip:
