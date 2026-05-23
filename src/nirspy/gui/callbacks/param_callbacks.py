@@ -230,14 +230,19 @@ def _groups_list_to_dict(groups: list[dict[str, Any]]) -> dict[str, Any]:
         lbl = g.get("label") or ""
         if not lbl:
             lbl = f"Group {len(out) + 1}"
+
+        def _f(key: str, default: float, src: dict[str, Any] = g) -> float:
+            v = src.get(key)
+            return float(v) if v is not None else default
+
         out[lbl] = {
             "label": lbl,
             "condition_names": list(g.get("condition_names") or []),
             "event_indices": list(g.get("event_indices") or []),
-            "tmin": float(g.get("tmin") or -2.0),
-            "tmax": float(g.get("tmax") or 18.0),
-            "baseline_tmin": float(g.get("baseline_tmin") or -2.0),
-            "baseline_tmax": float(g.get("baseline_tmax") or 0.0),
+            "tmin": _f("tmin", -2.0),
+            "tmax": _f("tmax", 18.0),
+            "baseline_tmin": _f("baseline_tmin", -2.0),
+            "baseline_tmax": _f("baseline_tmax", 0.0),
         }
     return out
 
@@ -328,14 +333,18 @@ def add_condition_group(
         idx = len(groups) + 1
         while f"Group {idx}" in existing_labels:
             idx += 1
+        _v_tmin = params.get("tmin")
+        _v_tmax = params.get("tmax")
+        _v_bmin = params.get("baseline_tmin")
+        _v_bmax = params.get("baseline_tmax")
         groups.append(
             {
                 "label": f"Group {idx}",
                 "condition_names": [],
-                "tmin": float(params.get("tmin") or -2.0),
-                "tmax": float(params.get("tmax") or 18.0),
-                "baseline_tmin": float(params.get("baseline_tmin") or -2.0),
-                "baseline_tmax": float(params.get("baseline_tmax") or 0.0),
+                "tmin": float(_v_tmin) if _v_tmin is not None else -2.0,
+                "tmax": float(_v_tmax) if _v_tmax is not None else 18.0,
+                "baseline_tmin": float(_v_bmin) if _v_bmin is not None else -2.0,
+                "baseline_tmax": float(_v_bmax) if _v_bmax is not None else 0.0,
             }
         )
         params["per_condition_groups"] = _groups_list_to_dict(groups)
