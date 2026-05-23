@@ -28,6 +28,7 @@ def update_param(
     new_value = ctx.triggered[0]["value"] if ctx.triggered else None
 
     state = list(pipeline_state)
+    snirf_path_changed = False
     for entry in state:
         if entry["instance_id"] == instance_id:
             params = dict(entry.get("params", {}))
@@ -36,6 +37,8 @@ def update_param(
             if isinstance(new_value, str) and new_value.strip().startswith(("{", "[")):
                 with contextlib.suppress(json.JSONDecodeError, ValueError):
                     new_value = json.loads(new_value)
+
+            old_value = params.get(field_name)
 
             # An empty input means "fall back to the dataclass default".
             # Dropping the key from params lets `block_cls(**params)` honour
@@ -46,7 +49,36 @@ def update_param(
             else:
                 params[field_name] = new_value
             entry["params"] = params
+
+            if (
+                entry.get("block_id") == "load_snirf"
+                and field_name == "path"
+                and old_value != params.get(field_name)
+            ):
+                snirf_path_changed = True
             break
+
+    # When the SNIRF source changes, downstream condition windows/groups
+    # become stale (condition names / event indices may not exist in the
+    # new file). Wipe them so the user re-defines them against the new
+    # SNIRF instead of running with mismatched references.
+    if snirf_path_changed:
+        for entry in state:
+            if entry.get("block_id") == "load_snirf":
+                continue
+            params = dict(entry.get("params", {}))
+            mutated = False
+            if "per_condition_groups" in params:
+                params["per_condition_groups"] = {}
+                mutated = True
+            if "per_condition_windows" in params:
+                params["per_condition_windows"] = {}
+                mutated = True
+            if "_hrf_mode" in params:
+                params.pop("_hrf_mode", None)
+                mutated = True
+            if mutated:
+                entry["params"] = params
 
     return state
 
