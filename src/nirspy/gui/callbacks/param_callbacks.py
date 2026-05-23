@@ -240,6 +240,25 @@ def _groups_list_to_dict(groups: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 @callback(
+    Output({"type": "cg-windows-panel", "instance_id": ALL}, "style"),
+    Output({"type": "cg-groups-panel", "instance_id": ALL}, "style"),
+    Input({"type": "cg-mode-radio", "instance_id": ALL}, "value"),
+    prevent_initial_call=False,
+)
+def toggle_hrf_mode_visibility(
+    values: list[str],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Show/hide the windows/groups editor panels based on the radio value."""
+    windows_styles = [
+        {"display": "block" if v == "windows" else "none"} for v in values
+    ]
+    groups_styles = [
+        {"display": "block" if v == "groups" else "none"} for v in values
+    ]
+    return windows_styles, groups_styles
+
+
+@callback(
     Output("pipeline-state", "data", allow_duplicate=True),
     Input({"type": "cg-mode-radio", "instance_id": ALL}, "value"),
     State("pipeline-state", "data"),
