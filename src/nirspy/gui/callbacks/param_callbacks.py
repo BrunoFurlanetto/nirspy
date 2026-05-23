@@ -208,6 +208,7 @@ def _get_groups_list(params: dict[str, Any]) -> list[dict[str, Any]]:
                 {
                     "label": lbl,
                     "condition_names": list(val.condition_names),
+                    "event_indices": list(val.event_indices),
                     "tmin": val.tmin,
                     "tmax": val.tmax,
                     "baseline_tmin": val.baseline_tmin,
@@ -217,6 +218,7 @@ def _get_groups_list(params: dict[str, Any]) -> list[dict[str, Any]]:
         elif isinstance(val, dict):
             entry = dict(val)
             entry.setdefault("label", lbl)
+            entry.setdefault("event_indices", [])
             result.append(entry)
     return result
 
@@ -231,6 +233,7 @@ def _groups_list_to_dict(groups: list[dict[str, Any]]) -> dict[str, Any]:
         out[lbl] = {
             "label": lbl,
             "condition_names": list(g.get("condition_names") or []),
+            "event_indices": list(g.get("event_indices") or []),
             "tmin": float(g.get("tmin") or -2.0),
             "tmax": float(g.get("tmax") or 18.0),
             "baseline_tmin": float(g.get("baseline_tmin") or -2.0),
@@ -452,6 +455,9 @@ def update_group_conditions(
         if 0 <= group_idx < len(groups):
             groups[group_idx] = dict(groups[group_idx])
             groups[group_idx]["condition_names"] = list(new_conditions)
+            # Mutual exclusion (D8): setting condition_names clears event_indices
+            if new_conditions:
+                groups[group_idx]["event_indices"] = []
         params["per_condition_groups"] = _groups_list_to_dict(groups)
         entry["params"] = params
         break
@@ -501,6 +507,134 @@ def update_group_time(
             groups[group_idx] = dict(groups[group_idx])
             groups[group_idx][field_name] = float(new_value)
         params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Timeline selection callbacks (T-030)
+#
+# Two callbacks:
+# 1. toggle_event_in_group  -- click on timeline marker -> add/remove index
+# 2. update_active_group    -- radio selector changes active group in state
+#
+# Active group label is persisted in pipeline-state as a UI-only key
+# ``_active_group_<instance_id>`` so rerenders pick it up without a
+# separate dcc.Store.
+# ---------------------------------------------------------------------------
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "condition-timeline-graph", "instance_id": ALL},
+        "clickData",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def toggle_event_in_group(
+    click_data_list: list[dict[str, Any] | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Toggle a single event occurrence into/out of the active group.
+
+    Reads the ``customdata[0]`` (event_index) from the clicked marker.
+    Looks up the active group label from pipeline-state
+    (``_active_group_<instance_id>``). Adds the index when not present;
+    removes it when already there.
+
+    When event_indices becomes non-empty for a group, condition_names is
+    cleared for that group to maintain D8 mutual exclusion.
+    """
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    click_data = ctx.triggered[0]["value"] if ctx.triggered else None
+    if click_data is None:
+        return no_update
+
+    # Extract event_index from customdata
+    try:
+        points = click_data.get("points", [])
+        if not points:
+            return no_update
+        event_index: int = int(points[0]["customdata"][0])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return no_update
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        active_label: str | None = params.get(f"_active_group_{instance_id}")
+        if not active_label or active_label == "__none__":
+            return no_update
+
+        groups = _get_groups_list(params)
+        for g in groups:
+            if g.get("label") != active_label:
+                continue
+            g = dict(g)
+            indices: list[int] = list(g.get("event_indices") or [])
+            if event_index in indices:
+                indices.remove(event_index)
+            else:
+                indices.append(event_index)
+                indices.sort()
+            g["event_indices"] = indices
+            # Mutual exclusion (D8): clear condition_names when indices non-empty
+            if indices:
+                g["condition_names"] = []
+            # Replace group in list
+            for i, existing in enumerate(groups):
+                if existing.get("label") == active_label:
+                    groups[i] = g
+                    break
+            break
+
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "condition-timeline-active-group", "instance_id": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_active_group(
+    values: list[str | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Persist the active group label selection into pipeline-state.
+
+    Stores the selection under ``_active_group_<instance_id>`` so that
+    the timeline render function can read it on the next render cycle.
+    The special value ``"__none__"`` means no group is selected.
+    """
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    new_label = ctx.triggered[0]["value"] if ctx.triggered else None
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        params[f"_active_group_{instance_id}"] = new_label or "__none__"
         entry["params"] = params
         break
 

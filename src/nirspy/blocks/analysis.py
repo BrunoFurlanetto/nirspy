@@ -63,14 +63,45 @@ class ConditionGroup:
     aggregate multiple SNIRF condition keys under a custom label with
     shared tmin/tmax/baseline windows. The label becomes the key in
     the resulting ``dict[str, Evoked]``.
+
+    Modes (D8)
+    ----------
+    Exactly one of ``condition_names`` or ``event_indices`` must be
+    non-empty.  Using both simultaneously is forbidden — ``__post_init__``
+    raises :class:`~nirspy.domain.exceptions.ValidationError`.
+
+    condition_names:
+        Classic mode (T-024): groups all occurrences of the listed
+        SNIRF condition keys together.
+    event_indices:
+        Timeline mode (T-030): groups specific occurrences identified by
+        their chronological index in ``raw.annotations`` (sorted by onset).
+        Index 0 = first occurrence across *all* stim annotations.
     """
 
     label: str
-    condition_names: list[str]
-    tmin: float
-    tmax: float
-    baseline_tmin: float
-    baseline_tmax: float
+    condition_names: list[str] = field(default_factory=list)
+    tmin: float = -2.0
+    tmax: float = 18.0
+    baseline_tmin: float = -2.0
+    baseline_tmax: float = 0.0
+    event_indices: list[int] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Enforce mutual exclusion between condition_names and event_indices."""
+        has_names = bool(self.condition_names)
+        has_indices = bool(self.event_indices)
+        if has_names and has_indices:
+            raise ValidationError(
+                f"ConditionGroup {self.label!r}: condition_names and "
+                "event_indices are mutually exclusive (D8). "
+                "Populate one or the other, not both."
+            )
+        if not has_names and not has_indices:
+            raise ValidationError(
+                f"ConditionGroup {self.label!r}: either condition_names or "
+                "event_indices must be non-empty."
+            )
 
 
 def _validate_condition_group(name: str, group: ConditionGroup) -> None:
@@ -85,10 +116,6 @@ def _validate_condition_group(name: str, group: ConditionGroup) -> None:
             f"ConditionGroup {name!r}: baseline_tmin "
             f"({group.baseline_tmin}) must be <= baseline_tmax "
             f"({group.baseline_tmax})."
-        )
-    if not group.condition_names:
-        raise ValidationError(
-            f"ConditionGroup {name!r}: condition_names must not be empty."
         )
 
 
@@ -173,7 +200,9 @@ class BlockAverageParams:
                 "Use one or the other, not both."
             )
 
-        # Coerce raw dicts to ConditionGroup for YAML round-trip
+        # Coerce raw dicts to ConditionGroup for YAML round-trip.
+        # event_indices defaults to [] when absent so legacy YAML (T-024,
+        # condition_names only) continues to deserialise without changes.
         if self.per_condition_groups:
             coerced_groups: dict[str, ConditionGroup] = {}
             for grp_key, grp_val in self.per_condition_groups.items():
