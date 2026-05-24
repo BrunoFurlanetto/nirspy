@@ -66,9 +66,7 @@ from nirspy.gui.components.hrf_runtime_dialog import (
     build_hrf_params_override,
     render_hrf_runtime_dialog,
 )
-from nirspy.gui.components.probe_dialog import build_channels_override, render_probe_dialog
 from nirspy.gui.components.runtime_dialog import render_runtime_dialog
-from nirspy.io.montage import save_sidecar_montage
 
 logger = logging.getLogger(__name__)
 
@@ -83,11 +81,10 @@ _IDLE_STATE: dict[str, Any] = {
 }
 
 
-def _extract_snirf_path(pipeline_state: list[dict[str, Any]]) -> str | None:
-    """Return the SNIRF file path from the load_snirf block in *pipeline_state*.
-
-    Returns *None* if the block is absent or has no path configured.
-    """
+def _extract_snirf_path(
+    pipeline_state: list[dict[str, Any]],
+) -> str | None:
+    """Return the SNIRF file path from the load_snirf block in *pipeline_state*."""
     for entry in pipeline_state:
         if entry.get("block_id") == "load_snirf":
             path = entry.get("params", {}).get("path")
@@ -107,9 +104,8 @@ def _make_modal_children(
     Dispatches a specialised dialog when *spec.block_id* matches a block that
     has a custom interactive dialog:
 
-    - ``block_average``          → hrf_runtime_dialog.render_hrf_runtime_dialog (T-028)
-    - ``manual_channel_exclude`` → probe_dialog.render_probe_dialog (T-029)
-    - everything else            → runtime_dialog.render_runtime_dialog
+    - ``block_average`` → ``render_hrf_runtime_dialog`` (T-028)
+    - everything else   → ``render_runtime_dialog``
     """
     if spec.block_id == "block_average":
         from nirspy.gui.components.condition_windows_editor import (
@@ -122,12 +118,6 @@ def _make_modal_children(
             total=total,
             available_conditions=available_conditions,
             current_params=current_params,
-        )
-    elif spec.block_id == "manual_channel_exclude":
-        modal = render_probe_dialog(
-            snirf_path=snirf_path,
-            current_idx=current_idx,
-            total=total,
         )
     else:
         modal = render_runtime_dialog(spec, current_idx, total, current_params)
@@ -246,8 +236,7 @@ def start_interactive_run(
         "snirf_path": snirf_path,
     }
 
-    # Pre-populate available_conditions in hrf-runtime-state so the add-group
-    # callback can serve the correct dropdown options (T-028).
+    # Pre-populate available_conditions in hrf-runtime-state (T-028)
     from nirspy.gui.components.condition_windows_editor import (
         read_snirf_condition_names,
     )
@@ -480,10 +469,7 @@ def skip_block(
         }
         return [], completed_state, warning_msg, True
 
-    snirf_path_skip_raw = exec_state.get("snirf_path") if exec_state else None
-    snirf_path_skip: str | None = (
-        str(snirf_path_skip_raw) if snirf_path_skip_raw is not None else None
-    )
+    snirf_path_skip: str | None = exec_state.get("snirf_path")
     updated_state: dict[str, Any] = {
         "runner_id": runner_id,
         "current_idx": runner.current_idx,
@@ -495,429 +481,3 @@ def skip_block(
         spec, runner.current_idx, runner.total_steps, current_params, snirf_path_skip
     )
     return modal_children, updated_state, warning_msg, True
-
-
-# ---------------------------------------------------------------------------
-# Callback 5 — probe_confirm_run  (ManualChannelExclude dialog)
-# ---------------------------------------------------------------------------
-
-@callback(
-    Output("runtime-dialog-container", "children", allow_duplicate=True),
-    Output("interactive-exec-state", "data", allow_duplicate=True),
-    Output("run-results", "data", allow_duplicate=True),
-    Output("run-interactive-error", "children", allow_duplicate=True),
-    Output("run-interactive-error", "is_open", allow_duplicate=True),
-    Output("run-success", "children", allow_duplicate=True),
-    Output("run-success", "is_open", allow_duplicate=True),
-    Input("probe-confirm-btn", "n_clicks"),
-    State("interactive-exec-state", "data"),
-    State("probe-excluded-store", "data"),
-    prevent_initial_call=True,
-)
-def probe_confirm_run(
-    n_clicks: int | None,
-    exec_state: dict[str, Any] | None,
-    excluded_channels: list[str] | None,
-) -> tuple[Any, ...]:
-    """Execute ManualChannelExclude with the user's exclusion choices.
-
-    Reads the excluded channel prefixes from ``probe-excluded-store``,
-    builds a ``params_override``, calls ``execute_current(params_override)``
-    on the runner, then advances to the next block (or finalises the run).
-    """
-    no_op = (
-        no_update, no_update, no_update,
-        no_update, no_update, no_update, no_update,
-    )
-    if not n_clicks or not exec_state:
-        return no_op
-
-    runner_id: str = exec_state.get("runner_id", "")
-    status: str = exec_state.get("status", "idle")
-    if status != "running" or not runner_id:
-        return no_op
-
-    entry = _INTERACTIVE_RUNNERS.get(runner_id)
-    if entry is None:
-        return no_op
-    runner, context = entry
-
-    params_override = build_channels_override(excluded_channels or [])
-
-    try:
-        runner.execute_current(params_override)
-    except NirspyError as exc:
-        logger.exception("Interactive run (probe): block execution failed")
-        msg = get_user_message(exc)
-        return (
-            no_update, no_update, no_update,
-            render_error(msg), True,
-            no_update, no_update,
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("Interactive run (probe): unexpected error")
-        return (
-            no_update, no_update, no_update,
-            render_error("Unexpected error. Check the log for details."),
-            True, no_update, no_update,
-        )
-
-    spec = runner.next_block()
-    if spec is None or runner.is_complete:
-        context_extra: dict[str, Any] = context.extra
-        run_results = _finalise_run(runner, runner_id, context_extra)
-        completed_state: dict[str, Any] = {
-            "runner_id": "",
-            "current_idx": -1,
-            "status": "complete",
-        }
-        success_msg = (
-            f"Interactive run complete "
-            f"({run_results['blocks_executed']}/{run_results['total_blocks']} blocks)."
-        )
-        return (
-            [],
-            completed_state,
-            run_results,
-            "", False,
-            success_msg, True,
-        )
-
-    snirf_path_confirm: str | None = exec_state.get("snirf_path")
-    updated_state: dict[str, Any] = {
-        "runner_id": runner_id,
-        "current_idx": runner.current_idx,
-        "status": "running",
-        "snirf_path": snirf_path_confirm,
-    }
-    current_params = _extract_current_params(runner)
-    modal_children = _make_modal_children(
-        spec, runner.current_idx, runner.total_steps, current_params, snirf_path_confirm
-    )
-    return (
-        modal_children,
-        updated_state,
-        no_update,
-        "", False,
-        "", False,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Callback 6 — probe_cancel_run  (ManualChannelExclude dialog cancel)
-# ---------------------------------------------------------------------------
-
-@callback(
-    Output("runtime-dialog-container", "children", allow_duplicate=True),
-    Output("interactive-exec-state", "data", allow_duplicate=True),
-    Input("probe-cancel-btn", "n_clicks"),
-    State("interactive-exec-state", "data"),
-    prevent_initial_call=True,
-)
-def probe_cancel_run(
-    n_clicks: int | None,
-    exec_state: dict[str, Any] | None,
-) -> tuple[Any, Any]:
-    """Discard the runner and close the probe dialog."""
-    if not n_clicks or not exec_state:
-        return no_update, no_update
-
-    runner_id: str = exec_state.get("runner_id", "")
-    _INTERACTIVE_RUNNERS.pop(runner_id, None)
-
-    return [], _IDLE_STATE
-
-
-# ---------------------------------------------------------------------------
-# Callback 7 — probe_graph_click  (unified click handler for view + positioning)
-# ---------------------------------------------------------------------------
-
-@callback(
-    Output("probe-selected-channel-store", "data", allow_duplicate=True),
-    Output("probe-positioned-montage-store", "data", allow_duplicate=True),
-    Output("probe-selected-optode-store", "data", allow_duplicate=True),
-    Output("probe-dialog-graph", "figure", allow_duplicate=True),
-    Output("probe-anchors-store", "data", allow_duplicate=True),
-    Output("probe-anchor-badges", "children", allow_duplicate=True),
-    Input("probe-dialog-graph", "clickData"),
-    State("probe-mode-store", "data"),
-    State("probe-selected-channel-store", "data"),
-    State("probe-positioned-montage-store", "data"),
-    State("probe-excluded-store", "data"),
-    State("probe-selected-optode-store", "data"),
-    State("probe-optode-selector", "value"),
-    State("probe-anchors-store", "data"),
-    prevent_initial_call=True,
-)
-def probe_graph_click(
-    click_data: dict[str, Any] | None,
-    mode: str | None,
-    selected_channel: str | None,
-    positioned_montage: dict[str, Any] | None,
-    excluded_channels: list[str] | None,
-    selected_optode: str | None,
-    selector_value: str | None,
-    current_anchors: list[list[str]] | None = None,
-) -> tuple[Any, Any, Any, Any, Any, Any]:
-    """Unified click handler dispatching by probe mode.
-
-    **view** mode — two-click anchor/translation:
-      1. Click channel midpoint to select it.
-      2. Click 10-20 reference to anchor (accumulates).
-
-    **positioning** mode — two-click optode placement:
-      1. Select optode from dropdown (or prior click).
-      2. Click on graph to place it at that coordinate.
-    """
-    _no = (no_update, no_update, no_update, no_update, no_update, no_update)
-
-    if not click_data:
-        return _no
-
-    if mode == "view":
-        return _probe_click_view(
-            click_data, selected_channel, positioned_montage,
-            excluded_channels, current_anchors,
-        )
-
-    if mode == "positioning":
-        sel, mont, opt, fig = _probe_click_positioning(
-            click_data, selected_optode, positioned_montage, selector_value
-        )
-        return sel, mont, opt, fig, no_update, no_update
-
-    return _no
-
-
-def _probe_click_view(
-    click_data: dict[str, Any],
-    selected_channel: str | None,
-    positioned_montage: dict[str, Any] | None,
-    excluded_channels: list[str] | None,
-    current_anchors: list[list[str]] | None = None,
-) -> tuple[Any, Any, Any, Any, Any, Any]:
-    from nirspy.gui.components.probe_dialog import (
-        _TEN_TWENTY_CD_PREFIX,
-        _build_anchor_badges,
-        _build_probe_figure,
-        similarity_transform_probe,
-    )
-
-    _no = (no_update, no_update, no_update, no_update, no_update, no_update)
-
-    if not positioned_montage:
-        return _no
-
-    points = click_data.get("points", [])
-    if not points:
-        return _no
-    customdata = points[0].get("customdata")
-    if not customdata:
-        return _no
-    cd = str(customdata)
-
-    excluded_set = set(excluded_channels or [])
-    anchors = list(current_anchors or [])
-
-    if cd.startswith(_TEN_TWENTY_CD_PREFIX):
-        if not selected_channel:
-            return _no
-        ref_label = cd[len(_TEN_TWENTY_CD_PREFIX):]
-        # Add new anchor
-        new_anchor = [selected_channel, ref_label]
-        anchors.append(new_anchor)
-        # Apply similarity transform with all anchors
-        updated = similarity_transform_probe(positioned_montage, anchors)
-        badges = _build_anchor_badges(anchors)
-        new_fig = _build_probe_figure(
-            updated, excluded_set, selected_channel=None, anchors=anchors,
-        )
-        return None, updated, no_update, new_fig, anchors, badges.children
-
-    if "_" in cd and cd.startswith(("S", "s")):
-        new_selection = None if cd == selected_channel else cd
-        new_fig = _build_probe_figure(
-            positioned_montage,
-            excluded_set,
-            selected_channel=new_selection,
-            anchors=anchors,
-        )
-        return (
-            new_selection, no_update, no_update, new_fig, no_update, no_update
-        )
-
-    return _no
-
-
-def _probe_click_positioning(
-    click_data: dict[str, Any],
-    selected_optode: str | None,
-    positioned_montage: dict[str, Any] | None,
-    selector_value: str | None,
-) -> tuple[Any, Any, Any, Any]:
-    from nirspy.gui.components.probe_dialog import _build_positioning_figure
-
-    _no = (no_update, no_update, no_update, no_update)
-
-    optode_to_place = selected_optode or selector_value
-    if not optode_to_place:
-        return _no
-
-    points = click_data.get("points", [])
-    if not points:
-        return _no
-
-    point = points[0]
-    x = point.get("x")
-    y = point.get("y")
-    if x is None or y is None:
-        return _no
-
-    montage = dict(positioned_montage or {"sources": [], "detectors": []})
-    sources: list[list[float]] = list(montage.get("sources", []))
-    detectors: list[list[float]] = list(montage.get("detectors", []))
-
-    label_upper = optode_to_place.upper()
-    if label_upper.startswith("S"):
-        idx_str = label_upper[1:]
-        try:
-            idx = int(idx_str) - 1
-        except ValueError:
-            return _no
-        while len(sources) <= idx:
-            sources.append([0.0, 0.0])
-        sources[idx] = [float(x), float(y)]
-    elif label_upper.startswith("D"):
-        idx_str = label_upper[1:]
-        try:
-            idx = int(idx_str) - 1
-        except ValueError:
-            return _no
-        while len(detectors) <= idx:
-            detectors.append([0.0, 0.0])
-        detectors[idx] = [float(x), float(y)]
-    else:
-        return _no
-
-    new_montage: dict[str, Any] = {"sources": sources, "detectors": detectors}
-    new_fig = _build_positioning_figure(new_montage, selected_optode=None)
-
-    return no_update, new_montage, None, new_fig
-
-
-# ---------------------------------------------------------------------------
-# Callback 7b — probe_exclude_checklist  (explicit exclusion via checkbox list)
-# ---------------------------------------------------------------------------
-
-@callback(
-    Output("probe-excluded-store", "data", allow_duplicate=True),
-    Output("probe-status-badge", "children", allow_duplicate=True),
-    Output("probe-dialog-graph", "figure", allow_duplicate=True),
-    Input("probe-exclude-checklist", "value"),
-    State("probe-positioned-montage-store", "data"),
-    State("probe-selected-channel-store", "data"),
-    State("probe-mode-store", "data"),
-    prevent_initial_call=True,
-)
-def probe_exclude_checklist(
-    checked: list[str] | None,
-    positioned_montage: dict[str, Any] | None,
-    selected_channel: str | None,
-    mode: str | None,
-) -> tuple[Any, Any, Any]:
-    """Update the excluded set + figure from the explicit checklist."""
-    from nirspy.gui.components.probe_dialog import (
-        _build_probe_figure,
-        _build_status_badge,
-    )
-
-    if mode != "view" or positioned_montage is None:
-        return no_update, no_update, no_update
-
-    new_excluded = list(checked or [])
-    new_fig = _build_probe_figure(
-        positioned_montage,
-        set(new_excluded),
-        selected_channel=selected_channel,
-    )
-    new_badge = _build_status_badge(set(new_excluded))
-    return new_excluded, new_badge.children, new_fig
-
-
-# ---------------------------------------------------------------------------
-# Callback 8 — probe_save_positions  (save sidecar JSON)
-# ---------------------------------------------------------------------------
-
-@callback(
-    Output("probe-mode-store", "data", allow_duplicate=True),
-    Output("probe-dialog-graph", "figure", allow_duplicate=True),
-    Input("probe-save-positions-btn", "n_clicks"),
-    State("probe-positioned-montage-store", "data"),
-    State("probe-snirf-path-store", "data"),
-    prevent_initial_call=True,
-)
-def probe_save_positions(
-    n_clicks: int | None,
-    positioned_montage: dict[str, Any] | None,
-    snirf_path: str | None,
-) -> tuple[Any, Any]:
-    """Save the in-progress positions to the sidecar JSON file."""
-    from nirspy.gui.components.probe_dialog import _build_probe_figure
-
-    if not n_clicks or not positioned_montage or not snirf_path:
-        return no_update, no_update
-
-    try:
-        save_sidecar_montage(snirf_path, positioned_montage)
-    except OSError:
-        logger.exception("probe_save_positions: failed to write sidecar")
-        return no_update, no_update
-
-    # Switch to view+exclude mode now that positions are saved
-    new_fig = _build_probe_figure(positioned_montage, set())
-    new_fig.update_layout(
-        title="Probe Layout — positions saved. Click channel to toggle exclusion."
-    )
-    return "view", new_fig
-
-
-# ---------------------------------------------------------------------------
-# Callback 9 — probe_reset_anchors  (clear all anchors)
-# ---------------------------------------------------------------------------
-
-@callback(
-    Output("probe-anchors-store", "data", allow_duplicate=True),
-    Output("probe-anchor-badges", "children", allow_duplicate=True),
-    Output("probe-dialog-graph", "figure", allow_duplicate=True),
-    Input("probe-reset-anchors-btn", "n_clicks"),
-    State("probe-positioned-montage-store", "data"),
-    State("probe-excluded-store", "data"),
-    State("probe-selected-channel-store", "data"),
-    State("probe-mode-store", "data"),
-    prevent_initial_call=True,
-)
-def probe_reset_anchors(
-    n_clicks: int | None,
-    positioned_montage: dict[str, Any] | None,
-    excluded_channels: list[str] | None,
-    selected_channel: str | None,
-    mode: str | None,
-) -> tuple[Any, Any, Any]:
-    """Clear all anchors and redraw the probe figure without anchor lines."""
-    from nirspy.gui.components.probe_dialog import (
-        _build_anchor_badges,
-        _build_probe_figure,
-    )
-
-    if not n_clicks or mode != "view" or positioned_montage is None:
-        return no_update, no_update, no_update
-
-    empty_anchors: list[list[str]] = []
-    badges = _build_anchor_badges(empty_anchors)
-    new_fig = _build_probe_figure(
-        positioned_montage,
-        set(excluded_channels or []),
-        selected_channel=selected_channel,
-        anchors=empty_anchors,
-    )
-    return empty_anchors, badges.children, new_fig
