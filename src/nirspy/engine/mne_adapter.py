@@ -1015,3 +1015,169 @@ class MNEAdapter:
                 f"evoked_to_dataframe() failed: {exc}",
                 mne_exception=exc,
             ) from exc
+
+    # ------------------------------------------------------------------
+    # GLM Analysis (v0.4 - T-034)
+    # ------------------------------------------------------------------
+
+    def run_glm(
+        self,
+        raw: mne.io.BaseRaw,
+        *,
+        event_id: dict[str, int] | None = None,
+        drift_model: str = "cosine",
+        high_pass: float = 0.01,
+        hrf_model: str = "glover",
+        noise_model: str = "ar1",
+    ) -> Any:
+        """Run first-level GLM on haemodynamic Raw data.
+
+        Builds a design matrix from stimulus annotations using nilearn,
+        then fits the GLM via mne_nirs.statistics.run_glm.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with hbo/hbr channels and stimulus annotations.
+        event_id:
+            Optional mapping of condition names to event codes.
+            If None, all annotations are used.
+        drift_model:
+            Drift model for design matrix ('cosine' or 'polynomial').
+        high_pass:
+            High-pass cutoff for cosine drift (Hz). Default 0.01.
+        hrf_model:
+            HRF model ('glover', 'spm', 'fir', 'glover + derivative', etc.).
+        noise_model:
+            Noise model for GLM ('ar1' or 'ols').
+
+        Returns
+        -------
+        GLMResult
+            Domain-layer container with coefficients, t-stats, p-values.
+
+        Raises
+        ------
+        MNEOperationError
+            When GLM fitting fails for any reason.
+        """
+        from nirspy.domain.glm_result import GLMResult
+
+        try:
+            from mne_nirs.statistics import run_glm as _mne_nirs_run_glm
+            from nilearn.glm.first_level import make_first_level_design_matrix
+
+            # Build frame times from raw duration and sampling rate
+            sfreq = raw.info["sfreq"]
+            n_times = raw.n_times
+            frame_times = np.arange(n_times) / sfreq
+
+            # Extract events as nilearn-compatible DataFrame
+            events_array, auto_event_id = mne.events_from_annotations(
+                raw, verbose=False
+            )
+            used_event_id = event_id if event_id is not None else auto_event_id
+
+            if len(events_array) == 0:
+                raise MNEOperationError(
+                    "run_glm(): no events found in raw annotations."
+                )
+
+            # Build nilearn events DataFrame
+            import pandas as pd
+
+            event_rows: list[dict[str, Any]] = []
+            # Invert event_id to get code -> name mapping
+            code_to_name = {v: k for k, v in used_event_id.items()}
+            first_samp = raw.first_samp
+
+            for event in events_array:
+                code = int(event[2])
+                if code in code_to_name:
+                    onset_sample = int(event[0]) - first_samp
+                    event_rows.append({
+                        "onset": onset_sample / sfreq,
+                        "duration": 1.0,  # Default 1s duration
+                        "trial_type": code_to_name[code],
+                    })
+
+            if not event_rows:
+                raise MNEOperationError(
+                    "run_glm(): no matching events found for the given event_id."
+                )
+
+            events_df = pd.DataFrame(event_rows)
+
+            # Build design matrix
+            design_matrix = make_first_level_design_matrix(
+                frame_times=frame_times,
+                events=events_df,
+                hrf_model=hrf_model,
+                drift_model=drift_model,
+                high_pass=high_pass,
+            )
+
+            # Run GLM via mne-nirs
+            glm_est = _mne_nirs_run_glm(
+                raw,
+                design_matrix,
+                noise_model=noise_model,
+            )
+
+            # Extract results from RegressionResults
+            # glm_est is a RegressionResults object
+            df = glm_est.to_dataframe()
+            ch_names = glm_est.ch_names
+            regressor_names = list(design_matrix.columns)
+
+            # Build matrices from the dataframe
+            n_regressors = len(regressor_names)
+            n_channels = len(ch_names)
+
+            theta = np.zeros((n_regressors, n_channels))
+            t_stats_mat = np.zeros((n_regressors, n_channels))
+            p_values_mat = np.zeros((n_regressors, n_channels))
+
+            # The to_dataframe() returns columns like:
+            # ch_name, Condition, theta, t_stat, ...
+            for i, reg in enumerate(regressor_names):
+                reg_df = df[df["Condition"] == reg]
+                for j, ch in enumerate(ch_names):
+                    ch_row = reg_df[reg_df["ch_name"] == ch]
+                    if len(ch_row) > 0:
+                        theta[i, j] = float(ch_row["theta"].iloc[0])
+                        if "t_stat" in ch_row.columns:
+                            t_stats_mat[i, j] = float(
+                                ch_row["t_stat"].iloc[0]
+                            )
+                        if "p_value" in ch_row.columns:
+                            p_values_mat[i, j] = float(
+                                ch_row["p_value"].iloc[0]
+                            )
+
+            # MSE per channel
+            mse = np.array(glm_est.MSE())
+
+            return GLMResult(
+                theta=theta,
+                t_stats=t_stats_mat,
+                p_values=p_values_mat,
+                mse=mse,
+                channel_names=list(ch_names),
+                regressor_names=regressor_names,
+                design_matrix=design_matrix.values,
+                noise_model=noise_model,
+                metadata={
+                    "drift_model": drift_model,
+                    "high_pass": high_pass,
+                    "hrf_model": hrf_model,
+                    "n_events": len(event_rows),
+                    "conditions": list(events_df["trial_type"].unique()),
+                },
+            )
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"run_glm() failed: {exc}", mne_exception=exc
+            ) from exc

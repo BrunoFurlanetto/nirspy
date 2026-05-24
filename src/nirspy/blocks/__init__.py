@@ -6,7 +6,7 @@ full set.  Instantiation happens at pipeline-assembly time (ADR-009).
 
     >>> from nirspy.blocks import registry
     >>> sorted(registry.list_blocks())
-    ['bandpass_filter', 'beer_lambert', 'block_average', 'load_snirf',
+    ['bandpass_filter', 'beer_lambert', 'block_average', 'glm', 'load_snirf',
      'manual_channel_exclude', 'optical_density', 'prune_channels',
      'scalp_coupling_index', 'spline_motion_correction', 'tddr',
      'wavelet_motion_correction']
@@ -24,6 +24,10 @@ from nirspy.blocks.epochs import (
 from nirspy.blocks.export import (
     ExportTableBlock,
     ExportTableParams,
+)
+from nirspy.blocks.glm import (
+    GLMBlock,
+    GLMParams,
 )
 from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
 from nirspy.blocks.manual_exclude import (
@@ -73,6 +77,7 @@ registry.register("manual_channel_exclude", ManualChannelExcludeBlock)
 registry.register("short_channel_regression", ShortChannelRegressionBlock)
 registry.register("epochs_extraction", EpochsExtractionBlock)
 registry.register("export_table", ExportTableBlock)
+registry.register("glm", GLMBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -83,6 +88,12 @@ __all__ = [
     "BlockAverageParams",
     "ConditionWindow",
     "BlockRegistry",
+    "EpochsExtractionBlock",
+    "EpochsExtractionParams",
+    "ExportTableBlock",
+    "ExportTableParams",
+    "GLMBlock",
+    "GLMParams",
     "ManualChannelExcludeBlock",
     "ManualChannelExcludeParams",
     "LoadSnirfBlock",
@@ -93,18 +104,14 @@ __all__ = [
     "PruneChannelsParams",
     "ScalpCouplingIndexBlock",
     "ScalpCouplingIndexParams",
+    "ShortChannelRegressionBlock",
+    "ShortChannelRegressionParams",
     "SplineBlock",
     "SplineParams",
     "TDDRBlock",
     "TDDRParams",
     "WaveletBlock",
     "WaveletParams",
-    "ExportTableBlock",
-    "ExportTableParams",
-    "EpochsExtractionBlock",
-    "EpochsExtractionParams",
-    "ShortChannelRegressionBlock",
-    "ShortChannelRegressionParams",
     "register",
     "registry",
 ]
