@@ -207,7 +207,7 @@ def on_convert(
     filename: str | None,
     direction: str,
     strip_pii: bool,
-    pos_scale: str | None,
+    pos_scale: str | None = "1",
 ) -> tuple[Any, Any]:
     """Run the file conversion and trigger download."""
     if not n_clicks or not contents or not filename:
