@@ -17,6 +17,10 @@ from nirspy.blocks.analysis import (
     BlockAverageParams,
     ConditionWindow,
 )
+from nirspy.blocks.epochs import (
+    EpochsExtractionBlock,
+    EpochsExtractionParams,
+)
 from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
 from nirspy.blocks.manual_exclude import (
     ManualChannelExcludeBlock,
@@ -63,6 +67,7 @@ registry.register("prune_channels", PruneChannelsBlock)
 registry.register("block_average", BlockAverageBlock)
 registry.register("manual_channel_exclude", ManualChannelExcludeBlock)
 registry.register("short_channel_regression", ShortChannelRegressionBlock)
+registry.register("epochs_extraction", EpochsExtractionBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -89,6 +94,8 @@ __all__ = [
     "TDDRParams",
     "WaveletBlock",
     "WaveletParams",
+    "EpochsExtractionBlock",
+    "EpochsExtractionParams",
     "ShortChannelRegressionBlock",
     "ShortChannelRegressionParams",
     "register",
