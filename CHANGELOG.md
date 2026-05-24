@@ -7,6 +7,28 @@ versionamento por [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-24
+
+### Added
+- **T-023 — PipelineRunner stepable** (PR #36): refactor `execution.py` into stepable executor supporting block-by-block interactive runs.
+- **T-024 — ConditionGroup domain + engine** (PR #37): `ConditionGroup` dataclass, `BlockAverageParams` extension with `event_indices`, `create_epochs_per_group` in `MNEAdapter`, YAML round-trip.
+- **T-025 — Condition groups editor** (PR #39): radio toggle HRF mode + builder editor for condition groups in ParamEditor.
+- **T-027 — Run Interactive button + generic dialog** (PR #40): toggle button, per-block runtime dialog with ParamEditor.
+- **T-028 — HRF specialized 2-stage dialog** (PR #41): grouped conditions + time windows per group in dedicated HRF dialog.
+- **T-030 — Condition timeline selection** (PR #43): individual event occurrence selection via Plotly scatter timeline.
+- **Probe distance check on .nirs→.snirf conversion**: warns about inter-optode distances outside physiological range during format conversion.
+
+### Fixed
+- Preserve `0.0` values in group time fields (falsy fallback bug).
+- Auto-select new group + timeline-first card layout.
+- Wire `snirf_path` through to T-030 timeline in builder.
+- Use correct per-instance key for active group lookup.
+- Clear condition windows/groups on SNIRF path change.
+- Merge probe click callbacks to fix anchor race condition.
+
+### Removed
+- Probe head silhouette, 10-20 grid, and channel interaction (T-026/T-029) — reverted for redesign in future milestone.
+
 ## [0.2.0] - 2026-05-22
 
 ### Added
