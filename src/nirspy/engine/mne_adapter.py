@@ -19,6 +19,8 @@ from scipy.interpolate import UnivariateSpline
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from nirspy.blocks.analysis import ConditionGroup, ConditionWindow
 
 logger = logging.getLogger(__name__)
@@ -944,3 +946,72 @@ class MNEAdapter:
             else:
                 filtered[condition] = evoked
         return filtered
+
+    # ------------------------------------------------------------------
+    # Export (v0.4)
+    # ------------------------------------------------------------------
+
+    def evoked_to_dataframe(
+        self,
+        evoked_dict: dict[str, mne.Evoked],
+    ) -> pd.DataFrame:
+        """Convert a dict of Evoked objects to a single DataFrame.
+
+        Each condition produces rows with columns:
+        - time (seconds)
+        - channel name
+        - value (concentration in mol/L)
+        - condition (label)
+        - ch_type (hbo/hbr)
+
+        Parameters
+        ----------
+        evoked_dict:
+            Mapping of condition name to mne.Evoked.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-format table suitable for statistical analysis.
+
+        Raises
+        ------
+        MNEOperationError
+            When conversion fails.
+        """
+        import pandas as pd
+
+        try:
+            frames: list[pd.DataFrame] = []
+            for condition, evoked in evoked_dict.items():
+                df = evoked.to_data_frame(time_format=None)
+                # MNE returns wide format: columns = channel names, index = time
+                # Melt to long format
+                df = df.reset_index()
+                df_long = df.melt(
+                    id_vars=["time"],
+                    var_name="channel",
+                    value_name="value",
+                )
+                df_long["condition"] = condition
+                # Add channel type info
+                ch_type_map = dict(
+                    zip(evoked.ch_names, evoked.get_channel_types(), strict=False)
+                )
+                df_long["ch_type"] = df_long["channel"].map(ch_type_map)
+                frames.append(df_long)
+
+            if not frames:
+                raise MNEOperationError(
+                    "evoked_to_dataframe(): empty evoked_dict, nothing to convert."
+                )
+
+            result = pd.concat(frames, ignore_index=True)
+            return result
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"evoked_to_dataframe() failed: {exc}",
+                mne_exception=exc,
+            ) from exc

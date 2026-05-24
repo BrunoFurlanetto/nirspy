@@ -21,6 +21,10 @@ from nirspy.blocks.epochs import (
     EpochsExtractionBlock,
     EpochsExtractionParams,
 )
+from nirspy.blocks.export import (
+    ExportTableBlock,
+    ExportTableParams,
+)
 from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
 from nirspy.blocks.manual_exclude import (
     ManualChannelExcludeBlock,
@@ -68,6 +72,7 @@ registry.register("block_average", BlockAverageBlock)
 registry.register("manual_channel_exclude", ManualChannelExcludeBlock)
 registry.register("short_channel_regression", ShortChannelRegressionBlock)
 registry.register("epochs_extraction", EpochsExtractionBlock)
+registry.register("export_table", ExportTableBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -94,6 +99,8 @@ __all__ = [
     "TDDRParams",
     "WaveletBlock",
     "WaveletParams",
+    "ExportTableBlock",
+    "ExportTableParams",
     "EpochsExtractionBlock",
     "EpochsExtractionParams",
     "ShortChannelRegressionBlock",
