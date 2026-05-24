@@ -8,8 +8,94 @@ from typing import Any
 import plotly.graph_objects as go
 from dash import dcc, html
 
+# Canonical head silhouette dimensions (viewport coordinates).
+_HEAD_RX: float = 1.1
+_HEAD_RY: float = 1.2
+_OPTODE_FIT_RADIUS: float = 1.0
 
-def _draw_head_silhouette(fig: go.Figure, scale: float) -> None:
+# 10-20 system reference positions (top-view, head-normalised).
+_TEN_TWENTY: dict[str, tuple[float, float]] = {
+    "Nz": (0.0, 1.2),
+    "Fpz": (0.0, 0.95),
+    "Fp1": (-0.30, 0.90),
+    "Fp2": (0.30, 0.90),
+    "F7": (-0.80, 0.55),
+    "F3": (-0.40, 0.50),
+    "Fz": (0.0, 0.50),
+    "F4": (0.40, 0.50),
+    "F8": (0.80, 0.55),
+    "T7": (-1.00, 0.0),
+    "C3": (-0.45, 0.0),
+    "Cz": (0.0, 0.0),
+    "C4": (0.45, 0.0),
+    "T8": (1.00, 0.0),
+    "P7": (-0.80, -0.55),
+    "P3": (-0.40, -0.50),
+    "Pz": (0.0, -0.50),
+    "P4": (0.40, -0.50),
+    "P8": (0.80, -0.55),
+    "O1": (-0.30, -0.90),
+    "O2": (0.30, -0.90),
+    "Oz": (0.0, -0.95),
+    "Iz": (0.0, -1.2),
+}
+
+
+def _pca_rotation_angle(centered_pts: list[tuple[float, float]]) -> float:
+    """Angle (radians) of the principal axis vs. the x-axis."""
+    if len(centered_pts) < 2:
+        return 0.0
+    sxx = sum(p[0] * p[0] for p in centered_pts)
+    syy = sum(p[1] * p[1] for p in centered_pts)
+    sxy = sum(p[0] * p[1] for p in centered_pts)
+    return 0.5 * math.atan2(2.0 * sxy, sxx - syy)
+
+
+def _normalize_xy(pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Recenter, PCA-rotate (long axis -> x), uniform scale."""
+    if not pts:
+        return []
+    cx = sum(p[0] for p in pts) / len(pts)
+    cy = sum(p[1] for p in pts) / len(pts)
+    centered = [(p[0] - cx, p[1] - cy) for p in pts]
+    theta = _pca_rotation_angle(centered)
+    cos_t = math.cos(-theta)
+    sin_t = math.sin(-theta)
+    rotated = [
+        (p[0] * cos_t - p[1] * sin_t, p[0] * sin_t + p[1] * cos_t)
+        for p in centered
+    ]
+    max_r = max(math.hypot(p[0], p[1]) for p in rotated)
+    scale = 1.0 if max_r <= 0 else _OPTODE_FIT_RADIUS / max_r
+    return [(p[0] * scale, p[1] * scale) for p in rotated]
+
+
+def _draw_ten_twenty_overlay(fig: go.Figure) -> None:
+    """Add a faint 10-20 reference layer."""
+    xs = [v[0] for v in _TEN_TWENTY.values()]
+    ys = [v[1] for v in _TEN_TWENTY.values()]
+    labels = list(_TEN_TWENTY.keys())
+    fig.add_trace(
+        go.Scatter(
+            x=xs,
+            y=ys,
+            mode="markers+text",
+            name="10-20 reference",
+            marker={
+                "color": "rgba(120,120,120,0.35)",
+                "size": 6,
+                "symbol": "circle-open",
+            },
+            text=labels,
+            textfont={"color": "rgba(80,80,80,0.55)", "size": 9},
+            textposition="bottom center",
+            hoverinfo="text",
+            showlegend=True,
+        )
+    )
+
+
+def _draw_head_silhouette(fig: go.Figure, scale: float = 1.0) -> None:
     """Add 2D top-view head shape traces to *fig* (D5).
 
     Draws an ellipse (scalp contour), triangle (nasion/nose at top),
@@ -23,14 +109,13 @@ def _draw_head_silhouette(fig: go.Figure, scale: float) -> None:
     scale:
         Radius scale factor based on optode bounds.
     """
-    if scale <= 0:
-        scale = 0.05  # fallback default
+    rx = _HEAD_RX
+    ry = _HEAD_RY
 
-    # Head ellipse (slightly taller than wide for top-view)
     n_pts = 100
     theta = [2 * math.pi * i / n_pts for i in range(n_pts + 1)]
-    head_x = [scale * 1.1 * math.cos(t) for t in theta]
-    head_y = [scale * 1.2 * math.sin(t) for t in theta]
+    head_x = [rx * math.cos(t) for t in theta]
+    head_y = [ry * math.sin(t) for t in theta]
 
     fig.add_trace(
         go.Scatter(
@@ -45,9 +130,9 @@ def _draw_head_silhouette(fig: go.Figure, scale: float) -> None:
     )
 
     # Nose triangle (nasion indicator at top)
-    nose_w = scale * 0.15
-    nose_h = scale * 0.15
-    nose_base_y = scale * 1.2
+    nose_w = 0.15
+    nose_h = 0.15
+    nose_base_y = ry
     fig.add_trace(
         go.Scatter(
             x=[-nose_w, 0, nose_w, -nose_w],
@@ -61,9 +146,9 @@ def _draw_head_silhouette(fig: go.Figure, scale: float) -> None:
     )
 
     # Left ear
-    ear_x_off = scale * 1.1
-    ear_h = scale * 0.2
-    ear_w = scale * 0.08
+    ear_x_off = rx
+    ear_h = 0.2
+    ear_w = 0.08
     fig.add_trace(
         go.Scatter(
             x=[-ear_x_off, -ear_x_off - ear_w, -ear_x_off],
@@ -89,14 +174,6 @@ def _draw_head_silhouette(fig: go.Figure, scale: float) -> None:
         )
     )
 
-    # Inion marker (bottom text)
-    fig.add_annotation(
-        x=0,
-        y=-scale * 1.3,
-        text="Iz",
-        showarrow=False,
-        font={"size": 10, "color": "#999999"},
-    )
 
 
 def render_probe_viewer(
@@ -170,29 +247,25 @@ def render_probe_viewer(
     except (KeyError, TypeError):
         pass
 
-    # Classify channels as source-like or detector-like by name
     fig = go.Figure()
 
-    # Compute scale from optode bounds for head silhouette
-    all_positions = list(ch_pos.values())
-    if all_positions:
-        pos_array = [[float(p[0]), float(p[1])] for p in all_positions]
-        xs = [p[0] for p in pos_array]
-        ys = [p[1] for p in pos_array]
-        x_range = max(xs) - min(xs) if xs else 0.1
-        y_range = max(ys) - min(ys) if ys else 0.1
-        head_scale = max(x_range, y_range) * 0.6
-    else:
-        head_scale = 0.05
+    # Normalise channel positions so the probe always lands inside the
+    # canonical head silhouette regardless of the raw unit (m/mm/cm) or
+    # any anatomical offset (e.g. PFC-only probes not centered at origin).
+    ch_items = list(ch_pos.items())
+    raw_pts = [
+        (float(p[0]), float(p[1])) for _, p in ch_items
+    ]
+    norm_pts = _normalize_xy(raw_pts)
 
-    _draw_head_silhouette(fig, head_scale)
+    _draw_head_silhouette(fig)
+    _draw_ten_twenty_overlay(fig)
 
     src_x, src_y, src_names = [], [], []
     det_x, det_y, det_names = [], [], []
     bad_x, bad_y, bad_names = [], [], []
 
-    for ch_name, pos in ch_pos.items():
-        x_val, y_val = float(pos[0]), float(pos[1])
+    for (ch_name, _pos), (x_val, y_val) in zip(ch_items, norm_pts, strict=False):
         if ch_name in bads_set:
             bad_x.append(x_val)
             bad_y.append(y_val)
@@ -259,8 +332,15 @@ def render_probe_viewer(
 
     fig.update_layout(
         title="Probe Layout",
-        xaxis={"visible": False},
-        yaxis={"visible": False, "scaleanchor": "x"},
+        xaxis={
+            "visible": False,
+            "range": [-(_HEAD_RX + 0.25), _HEAD_RX + 0.25],
+        },
+        yaxis={
+            "visible": False,
+            "scaleanchor": "x",
+            "range": [-(_HEAD_RY + 0.3), _HEAD_RY + 0.3],
+        },
         height=400,
         margin={"l": 20, "r": 20, "t": 40, "b": 20},
         template="plotly_white",
