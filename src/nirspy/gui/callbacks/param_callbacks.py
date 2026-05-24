@@ -28,6 +28,7 @@ def update_param(
     new_value = ctx.triggered[0]["value"] if ctx.triggered else None
 
     state = list(pipeline_state)
+    snirf_path_changed = False
     for entry in state:
         if entry["instance_id"] == instance_id:
             params = dict(entry.get("params", {}))
@@ -36,6 +37,8 @@ def update_param(
             if isinstance(new_value, str) and new_value.strip().startswith(("{", "[")):
                 with contextlib.suppress(json.JSONDecodeError, ValueError):
                     new_value = json.loads(new_value)
+
+            old_value = params.get(field_name)
 
             # An empty input means "fall back to the dataclass default".
             # Dropping the key from params lets `block_cls(**params)` honour
@@ -46,7 +49,36 @@ def update_param(
             else:
                 params[field_name] = new_value
             entry["params"] = params
+
+            if (
+                entry.get("block_id") == "load_snirf"
+                and field_name == "path"
+                and old_value != params.get(field_name)
+            ):
+                snirf_path_changed = True
             break
+
+    # When the SNIRF source changes, downstream condition windows/groups
+    # become stale (condition names / event indices may not exist in the
+    # new file). Wipe them so the user re-defines them against the new
+    # SNIRF instead of running with mismatched references.
+    if snirf_path_changed:
+        for entry in state:
+            if entry.get("block_id") == "load_snirf":
+                continue
+            params = dict(entry.get("params", {}))
+            mutated = False
+            if "per_condition_groups" in params:
+                params["per_condition_groups"] = {}
+                mutated = True
+            if "per_condition_windows" in params:
+                params["per_condition_windows"] = {}
+                mutated = True
+            if "_hrf_mode" in params:
+                params.pop("_hrf_mode", None)
+                mutated = True
+            if mutated:
+                entry["params"] = params
 
     return state
 
@@ -168,6 +200,484 @@ def toggle_condition_windows(
                 cond: (existing[cond] if cond in existing else dict(defaults))
                 for cond in discovered
             }
+        entry["params"] = params
+        break
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Per-condition groups callbacks (T-025)
+#
+# Groups are user-defined: each group has a label, a set of condition
+# names drawn from the SNIRF, and temporal parameters.
+#
+# Storage format in pipeline-state::
+#
+#   params["per_condition_groups"] = {
+#       "<label>": {
+#           "label": "<label>",
+#           "condition_names": [...],
+#           "tmin": float, "tmax": float,
+#           "baseline_tmin": float, "baseline_tmax": float,
+#       },
+#       ...
+#   }
+#
+# The dict is keyed by label for fast lookup; the "label" key inside
+# each value is redundant but makes ConditionGroup(**val) round-trip
+# work in __post_init__.
+# ---------------------------------------------------------------------------
+
+
+def _get_groups_list(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return per_condition_groups as an ordered list of plain dicts."""
+    raw = params.get("per_condition_groups") or {}
+    result: list[dict[str, Any]] = []
+    for lbl, val in raw.items():
+        if hasattr(val, "condition_names"):
+            result.append(
+                {
+                    "label": lbl,
+                    "condition_names": list(val.condition_names),
+                    "event_indices": list(val.event_indices),
+                    "tmin": val.tmin,
+                    "tmax": val.tmax,
+                    "baseline_tmin": val.baseline_tmin,
+                    "baseline_tmax": val.baseline_tmax,
+                }
+            )
+        elif isinstance(val, dict):
+            entry = dict(val)
+            entry.setdefault("label", lbl)
+            entry.setdefault("event_indices", [])
+            result.append(entry)
+    return result
+
+
+def _groups_list_to_dict(groups: list[dict[str, Any]]) -> dict[str, Any]:
+    """Convert an ordered list of group dicts back to the keyed dict format."""
+    out: dict[str, Any] = {}
+    for g in groups:
+        lbl = g.get("label") or ""
+        if not lbl:
+            lbl = f"Group {len(out) + 1}"
+
+        def _f(key: str, default: float, src: dict[str, Any] = g) -> float:
+            v = src.get(key)
+            return float(v) if v is not None else default
+
+        out[lbl] = {
+            "label": lbl,
+            "condition_names": list(g.get("condition_names") or []),
+            "event_indices": list(g.get("event_indices") or []),
+            "tmin": _f("tmin", -2.0),
+            "tmax": _f("tmax", 18.0),
+            "baseline_tmin": _f("baseline_tmin", -2.0),
+            "baseline_tmax": _f("baseline_tmax", 0.0),
+        }
+    return out
+
+
+@callback(
+    Output({"type": "cg-windows-panel", "instance_id": ALL}, "style"),
+    Output({"type": "cg-groups-panel", "instance_id": ALL}, "style"),
+    Input({"type": "cg-mode-radio", "instance_id": ALL}, "value"),
+    prevent_initial_call=False,
+)
+def toggle_hrf_mode_visibility(
+    values: list[str],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Show/hide the windows/groups editor panels based on the radio value."""
+    windows_styles = [
+        {"display": "block" if v == "windows" else "none"} for v in values
+    ]
+    groups_styles = [
+        {"display": "block" if v == "groups" else "none"} for v in values
+    ]
+    return windows_styles, groups_styles
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input({"type": "cg-mode-radio", "instance_id": ALL}, "value"),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def toggle_hrf_mode(
+    values: list[str],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Switch between per-condition-windows and per-condition-groups modes.
+
+    When switching to "groups": clears per_condition_windows so the mutual
+    exclusion invariant in BlockAverageParams.__post_init__ is satisfied.
+    When switching to "windows": clears per_condition_groups.
+    """
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    new_mode = ctx.triggered[0]["value"] if ctx.triggered else "windows"
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        params["_hrf_mode"] = new_mode
+        if new_mode == "groups":
+            params["per_condition_windows"] = {}
+        else:
+            params["per_condition_groups"] = {}
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input({"type": "cg-add", "instance_id": ALL}, "n_clicks"),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def add_condition_group(
+    n_clicks: list[int | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Append an empty group to per_condition_groups."""
+    if not ctx.triggered_id:
+        return no_update
+    if not any(n for n in n_clicks if n):
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        groups = _get_groups_list(params)
+        # Generate a unique default label
+        existing_labels = {g.get("label", "") for g in groups}
+        idx = len(groups) + 1
+        while f"Group {idx}" in existing_labels:
+            idx += 1
+        _v_tmin = params.get("tmin")
+        _v_tmax = params.get("tmax")
+        _v_bmin = params.get("baseline_tmin")
+        _v_bmax = params.get("baseline_tmax")
+        groups.append(
+            {
+                "label": f"Group {idx}",
+                "condition_names": [],
+                "tmin": float(_v_tmin) if _v_tmin is not None else -2.0,
+                "tmax": float(_v_tmax) if _v_tmax is not None else 18.0,
+                "baseline_tmin": float(_v_bmin) if _v_bmin is not None else -2.0,
+                "baseline_tmax": float(_v_bmax) if _v_bmax is not None else 0.0,
+            }
+        )
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        params["per_condition_windows"] = {}
+        params["_hrf_mode"] = "groups"
+        # Auto-select newly added group as active for the timeline (UX)
+        params[f"_active_group_{instance_id}"] = f"Group {idx}"
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cg-remove", "instance_id": ALL, "group_idx": ALL},
+        "n_clicks",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def remove_condition_group(
+    n_clicks: list[int | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Remove a group card by its index."""
+    if not ctx.triggered_id:
+        return no_update
+    if not any(n for n in n_clicks if n):
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    group_idx: int = int(ctx.triggered_id["group_idx"])
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        groups = _get_groups_list(params)
+        if 0 <= group_idx < len(groups):
+            groups.pop(group_idx)
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cg-label", "instance_id": ALL, "group_idx": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_group_label(
+    values: list[str | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Update the label of a condition group."""
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    group_idx: int = int(ctx.triggered_id["group_idx"])
+    new_label = ctx.triggered[0]["value"] if ctx.triggered else None
+    if not new_label:
+        return no_update
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        groups = _get_groups_list(params)
+        if 0 <= group_idx < len(groups):
+            groups[group_idx] = dict(groups[group_idx])
+            groups[group_idx]["label"] = new_label
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "cg-conditions", "instance_id": ALL, "group_idx": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_group_conditions(
+    values: list[list[str] | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Update the condition_names list for a group."""
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    group_idx: int = int(ctx.triggered_id["group_idx"])
+    new_conditions = ctx.triggered[0]["value"] if ctx.triggered else None
+    if new_conditions is None:
+        new_conditions = []
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        groups = _get_groups_list(params)
+        if 0 <= group_idx < len(groups):
+            groups[group_idx] = dict(groups[group_idx])
+            groups[group_idx]["condition_names"] = list(new_conditions)
+            # Mutual exclusion (D8): setting condition_names clears event_indices
+            if new_conditions:
+                groups[group_idx]["event_indices"] = []
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {
+            "type": "cg-time",
+            "instance_id": ALL,
+            "group_idx": ALL,
+            "field": ALL,
+        },
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_group_time(
+    values: list[float | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Update a tmin/tmax/baseline field for a condition group."""
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    group_idx: int = int(ctx.triggered_id["group_idx"])
+    field_name: str = ctx.triggered_id["field"]
+    new_value = ctx.triggered[0]["value"] if ctx.triggered else None
+
+    if field_name not in {"tmin", "tmax", "baseline_tmin", "baseline_tmax"}:
+        return no_update
+    if new_value is None or new_value == "":
+        return no_update
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        groups = _get_groups_list(params)
+        if 0 <= group_idx < len(groups):
+            groups[group_idx] = dict(groups[group_idx])
+            groups[group_idx][field_name] = float(new_value)
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Timeline selection callbacks (T-030)
+#
+# Two callbacks:
+# 1. toggle_event_in_group  -- click on timeline marker -> add/remove index
+# 2. update_active_group    -- radio selector changes active group in state
+#
+# Active group label is persisted in pipeline-state as a UI-only key
+# ``_active_group_<instance_id>`` so rerenders pick it up without a
+# separate dcc.Store.
+# ---------------------------------------------------------------------------
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "condition-timeline-graph", "instance_id": ALL},
+        "clickData",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def toggle_event_in_group(
+    click_data_list: list[dict[str, Any] | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Toggle a single event occurrence into/out of the active group.
+
+    Reads the ``customdata[0]`` (event_index) from the clicked marker.
+    Looks up the active group label from pipeline-state
+    (``_active_group_<instance_id>``). Adds the index when not present;
+    removes it when already there.
+
+    When event_indices becomes non-empty for a group, condition_names is
+    cleared for that group to maintain D8 mutual exclusion.
+    """
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    click_data = ctx.triggered[0]["value"] if ctx.triggered else None
+    if click_data is None:
+        return no_update
+
+    # Extract event_index from customdata
+    try:
+        points = click_data.get("points", [])
+        if not points:
+            return no_update
+        event_index: int = int(points[0]["customdata"][0])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return no_update
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        active_label: str | None = params.get(f"_active_group_{instance_id}")
+        if not active_label or active_label == "__none__":
+            return no_update
+
+        groups = _get_groups_list(params)
+        for g in groups:
+            if g.get("label") != active_label:
+                continue
+            g = dict(g)
+            indices: list[int] = list(g.get("event_indices") or [])
+            if event_index in indices:
+                indices.remove(event_index)
+            else:
+                indices.append(event_index)
+                indices.sort()
+            g["event_indices"] = indices
+            # Mutual exclusion (D8): clear condition_names when indices non-empty
+            if indices:
+                g["condition_names"] = []
+            # Replace group in list
+            for i, existing in enumerate(groups):
+                if existing.get("label") == active_label:
+                    groups[i] = g
+                    break
+            break
+
+        params["per_condition_groups"] = _groups_list_to_dict(groups)
+        entry["params"] = params
+        break
+
+    return state
+
+
+@callback(
+    Output("pipeline-state", "data", allow_duplicate=True),
+    Input(
+        {"type": "condition-timeline-active-group", "instance_id": ALL},
+        "value",
+    ),
+    State("pipeline-state", "data"),
+    prevent_initial_call=True,
+)
+def update_active_group(
+    values: list[str | None],
+    pipeline_state: list[dict[str, Any]],
+) -> Any:
+    """Persist the active group label selection into pipeline-state.
+
+    Stores the selection under ``_active_group_<instance_id>`` so that
+    the timeline render function can read it on the next render cycle.
+    The special value ``"__none__"`` means no group is selected.
+    """
+    if not ctx.triggered_id:
+        return no_update
+
+    instance_id: str = ctx.triggered_id["instance_id"]
+    new_label = ctx.triggered[0]["value"] if ctx.triggered else None
+
+    state = list(pipeline_state)
+    for entry in state:
+        if entry["instance_id"] != instance_id:
+            continue
+        params = dict(entry.get("params", {}))
+        params[f"_active_group_{instance_id}"] = new_label or "__none__"
         entry["params"] = params
         break
 

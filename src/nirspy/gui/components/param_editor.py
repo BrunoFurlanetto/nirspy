@@ -28,6 +28,10 @@ from typing import Any, Union, get_args, get_origin
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from nirspy.gui.components.condition_groups_editor import (
+    groups_mode_radio_id,
+    render_condition_groups_editor,
+)
 from nirspy.gui.components.condition_windows_editor import (
     render_condition_windows_editor,
 )
@@ -93,7 +97,6 @@ def _resolve_field_type(tp: Any) -> tuple[bool, type[Any]]:
     return False, str
 
 
-
 def _make_label(field_name: str, meta: ParamMeta | None) -> str:
     """Build the display label from metadata or raw field name."""
     if meta is None:
@@ -135,6 +138,7 @@ def _numeric_attrs(meta: ParamMeta | None) -> dict[str, Any]:
         attrs["step"] = meta.step
     return attrs
 
+
 def _field_to_input(
     field: dataclasses.Field[Any],
     value: Any,
@@ -151,14 +155,15 @@ def _field_to_input(
     """
     field_name = field.name
 
-    # Surgical delegation for per_condition_windows (T-012)
-    if block_id == "block_average" and field_name == "per_condition_windows":
-        editor = render_condition_windows_editor(
-            instance_id,
-            value if isinstance(value, dict) else None,
-            available_conditions=available_conditions,
-        )
-        return [editor]
+    # Surgical delegation for per_condition_windows (T-012) and
+    # per_condition_groups (T-025).  Both are rendered together via the
+    # unified HRF-mode widget injected by render_param_editor — skip
+    # individual rendering here.
+    if block_id == "block_average" and field_name in (
+        "per_condition_windows",
+        "per_condition_groups",
+    ):
+        return []
 
     input_id: dict[str, str] = {
         "type": "param-input",
@@ -349,6 +354,79 @@ def _field_to_input(
     return components
 
 
+def _render_hrf_mode_widget(
+    instance_id: str,
+    current_values: dict[str, Any],
+    available_conditions: list[str] | None,
+    snirf_path: str | None = None,
+) -> html.Div:
+    """Render the mode toggle + active editor for BlockAverage (T-025).
+
+    Shows a radio with two options:
+      - "Per-condition windows" (T-012, default)
+      - "Per-condition groups" (T-025)
+
+    Only the editor for the active mode is shown; the other is hidden.
+    The active mode is determined by which dict in ``current_values`` is
+    non-empty; if both are empty the default is per-condition-windows.
+    """
+    pcw: dict[str, Any] = current_values.get("per_condition_windows") or {}
+    pcg: dict[str, Any] = current_values.get("per_condition_groups") or {}
+
+    # Mode: explicit marker wins; else infer from non-empty pcg; else "windows"
+    explicit_mode = current_values.get("_hrf_mode")
+    if explicit_mode in ("windows", "groups"):
+        active_mode = explicit_mode
+    else:
+        active_mode = "groups" if pcg else "windows"
+
+    radio = dbc.RadioItems(
+        id=groups_mode_radio_id(instance_id),
+        options=[
+            {"label": "Per-condition windows", "value": "windows"},
+            {"label": "Per-condition groups", "value": "groups"},
+        ],
+        value=active_mode,
+        inline=True,
+        className="mb-2 small",
+    )
+
+    windows_editor = html.Div(
+        render_condition_windows_editor(
+            instance_id,
+            pcw if isinstance(pcw, dict) else None,
+            available_conditions=available_conditions,
+        ),
+        style={"display": "block" if active_mode == "windows" else "none"},
+        id={"type": "cg-windows-panel", "instance_id": instance_id},
+    )
+
+    active_label = current_values.get(f"_active_group_{instance_id}")
+    if active_label == "__none__":
+        active_label = None
+    groups_editor = html.Div(
+        render_condition_groups_editor(
+            instance_id,
+            pcg if isinstance(pcg, dict) else None,
+            available_conditions=available_conditions,
+            snirf_path=snirf_path,
+            active_group_label=active_label,
+        ),
+        style={"display": "block" if active_mode == "groups" else "none"},
+        id={"type": "cg-groups-panel", "instance_id": instance_id},
+    )
+
+    return html.Div(
+        [
+            html.Label("HRF mode", className="small fw-bold mb-1"),
+            radio,
+            windows_editor,
+            groups_editor,
+        ],
+        className="mb-3 p-2 border rounded",
+    )
+
+
 def render_param_editor(
     block_id: str | None,
     instance_id: str | None,
@@ -357,6 +435,7 @@ def render_param_editor(
     *,
     available_channels: list[str] | None = None,
     available_conditions: list[str] | None = None,
+    snirf_path: str | None = None,
 ) -> html.Div:
     """Auto-generate a parameter form for *params_class*.
 
@@ -407,6 +486,20 @@ def render_param_editor(
         )
 
     children: list[Any] = []
+
+    # For block_average: inject the unified HRF mode toggle widget (T-025).
+    # The individual per_condition_windows / per_condition_groups fields
+    # are suppressed in _field_to_input and rendered here as one unit.
+    if block_id == "block_average":
+        children.append(
+            _render_hrf_mode_widget(
+                instance_id,
+                current_values,
+                available_conditions=available_conditions,
+                snirf_path=snirf_path,
+            )
+        )
+
     for f in fields:
         default = f.default if f.default is not dataclasses.MISSING else None
         val = current_values.get(f.name, default)

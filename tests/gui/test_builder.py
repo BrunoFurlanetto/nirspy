@@ -191,8 +191,11 @@ class TestParamEditor:
         html_str = str(result)
         for f in fields:
             if f.name == "per_condition_windows":
-                # Custom widget; check for its switch ID instead
+                # Rendered via HRF mode widget — check for the switch ID
                 assert "cond-window-switch" in html_str
+            elif f.name == "per_condition_groups":
+                # Rendered via HRF mode widget — check for the groups editor
+                assert "cg-mode-radio" in html_str
             else:
                 assert f.name in html_str
 

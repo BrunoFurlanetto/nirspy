@@ -72,6 +72,30 @@ def render_converter_tab() -> html.Div:
         className="mb-3",
     )
 
+    probe_distance_panel = html.Div(
+        id="converter-probe-distance-panel",
+        children=[
+            html.Div(id="converter-probe-distance-info"),
+            html.Label(
+                "Apply scale factor to positions:",
+                className="fw-bold small mb-1",
+            ),
+            dbc.RadioItems(
+                id="converter-pos-scale",
+                options=[
+                    {"label": "x1 (no change)", "value": "1"},
+                    {"label": "x10 (cm → mm)", "value": "10"},
+                    {"label": "x0.1 (mm → cm)", "value": "0.1"},
+                ],
+                value="1",
+                inline=True,
+                className="mb-2",
+            ),
+        ],
+        className="mb-3 p-3 border rounded bg-light",
+        style={"display": "none"},
+    )
+
     convert_button = dbc.Button(
         "Convert",
         id="converter-btn-convert",
@@ -111,6 +135,7 @@ def render_converter_tab() -> html.Div:
             ),
             direction_toggle,
             strip_pii_checkbox,
+            probe_distance_panel,
             convert_button,
             status_area,
             download,

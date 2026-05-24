@@ -224,10 +224,15 @@ class TestPerConditionWindows:
         assert "Tapping" in result.data
         assert "Rest" in result.data
 
-    def test_raises_on_unknown_condition(
+    def test_warns_and_skips_unknown_condition(
         self, raw_haemo_with_events, context
     ):
-        """Raise if per_condition_windows key not in event_id."""
+        """Warn and skip if per_condition_windows key not in event_id.
+
+        T-012 hotfix (2d7b63d) contract: stale keys (from a previous SNIRF
+        with different conditions) must NOT raise -- they emit UserWarning
+        and are filtered out. Defence-in-depth for YAML-loaded pipelines.
+        """
         params = BlockAverageParams(
             per_condition_windows={
                 "NonExistent": ConditionWindow(
@@ -237,8 +242,9 @@ class TestPerConditionWindows:
             },
         )
         block = BlockAverageBlock(params=params)
-        with pytest.raises(ValidationError, match="per_condition_windows"):
-            block.run(context, {"beer_lambert": raw_haemo_with_events})
+        with pytest.warns(UserWarning, match="not found"):
+            result = block.run(context, {"beer_lambert": raw_haemo_with_events})
+        assert "NonExistent" not in result.data
 
     def test_raises_on_bad_condition_window_tmin_tmax(self):
         """Raise if ConditionWindow has tmin >= tmax."""

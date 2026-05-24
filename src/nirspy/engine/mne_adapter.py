@@ -19,7 +19,7 @@ from scipy.interpolate import UnivariateSpline
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 
 if TYPE_CHECKING:
-    from nirspy.blocks.analysis import ConditionWindow
+    from nirspy.blocks.analysis import ConditionGroup, ConditionWindow
 
 logger = logging.getLogger(__name__)
 
@@ -593,6 +593,192 @@ class MNEAdapter:
         except Exception as exc:  # noqa: BLE001
             raise MNEOperationError(
                 f"create_epochs_per_condition() failed: {exc}",
+                mne_exception=exc,
+            ) from exc
+
+    @staticmethod
+    def _events_by_indices(
+        raw: mne.io.BaseRaw,
+        indices: list[int],
+    ) -> tuple[np.ndarray[Any, Any], dict[str, int]]:
+        """Build an MNE events array from chronological annotation indices.
+
+        Annotations are sorted by onset and assigned a chronological index
+        (0 = first stim across *all* stim types). The returned events array
+        contains only the rows corresponding to *indices*, preserving the
+        original event codes so the group Epochs carries meaningful condition
+        labels.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw object whose annotations define the events.
+        indices:
+            Chronological positions (0-based) into the sorted annotations.
+
+        Returns
+        -------
+        events:
+            MNE events array (n_selected, 3) sorted by onset sample.
+        event_id:
+            Mapping of condition_name -> event_code for the selected events.
+        """
+        all_events, auto_event_id = mne.events_from_annotations(
+            raw, verbose=False
+        )
+        # Sorted list of (onset_s, description) from Raw annotations,
+        # mirroring the order mne.events_from_annotations produces.
+        sorted_annots = sorted(
+            (ann["onset"], ann["description"])
+            for ann in raw.annotations
+        )
+        # Resolve stim onset samples for each chronological index.
+        sfreq = raw.info["sfreq"]
+        first_sample = raw.first_samp
+
+        selected_rows: list[np.ndarray[Any, Any]] = []
+        selected_event_id: dict[str, int] = {}
+
+        for idx in indices:
+            if idx < 0 or idx >= len(sorted_annots):
+                logger.warning(
+                    "_events_by_indices: index %d out of range "
+                    "(annotations length %d). Skipping.",
+                    idx,
+                    len(sorted_annots),
+                )
+                continue
+            onset_s, description = sorted_annots[idx]
+            # Find matching row in all_events by sample proximity.
+            onset_sample = int(round(onset_s * sfreq)) + first_sample
+            # Tolerance: ±2 samples to handle floating-point rounding.
+            tol = 2
+            code = auto_event_id.get(description)
+            if code is None:
+                logger.warning(
+                    "_events_by_indices: description %r not found in "
+                    "event_id. Skipping index %d.",
+                    description,
+                    idx,
+                )
+                continue
+            mask = (
+                (np.abs(all_events[:, 0] - onset_sample) <= tol)
+                & (all_events[:, 2] == code)
+            )
+            matching = all_events[mask]
+            if len(matching) == 0:
+                logger.warning(
+                    "_events_by_indices: no MNE event found near sample "
+                    "%d (onset %.3fs, code %d). Skipping index %d.",
+                    onset_sample,
+                    onset_s,
+                    code,
+                    idx,
+                )
+                continue
+            selected_rows.append(matching[0])
+            selected_event_id[description] = code
+
+        if not selected_rows:
+            return np.zeros((0, 3), dtype=int), {}
+
+        selected_events = np.vstack(selected_rows)
+        # Sort by sample number (MNE convention)
+        order = np.argsort(selected_events[:, 0])
+        return selected_events[order], selected_event_id
+
+    def create_epochs_per_group(
+        self,
+        raw: mne.io.BaseRaw,
+        groups: dict[str, ConditionGroup],
+        *,
+        reject: dict[str, float] | None,
+    ) -> dict[str, mne.Epochs]:
+        """Create one Epochs per condition group.
+
+        Each group aggregates multiple SNIRF condition keys under a
+        single label. The resulting dict is keyed by group label.
+
+        Supports two modes per group (D8):
+        - **condition_names mode**: all occurrences of the listed SNIRF
+          condition keys are included (T-024 behaviour).
+        - **event_indices mode**: only specific occurrences identified by
+          their chronological index in ``raw.annotations`` are included
+          (T-030 timeline selection).
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with annotations marking stimulus events.
+        groups:
+            Mapping of group label to :class:`ConditionGroup`.
+        reject:
+            Channel-type rejection thresholds.
+
+        Returns
+        -------
+        dict[str, mne.Epochs]
+            One Epochs per group label.
+        """
+        try:
+            events, auto_event_id = mne.events_from_annotations(
+                raw, verbose=False
+            )
+            result: dict[str, mne.Epochs] = {}
+            for label, group in groups.items():
+                # --- event_indices mode (T-030) ---
+                if group.event_indices:
+                    group_events, subset_event_id = self._events_by_indices(
+                        raw, group.event_indices
+                    )
+                    if len(group_events) == 0:
+                        logger.warning(
+                            "create_epochs_per_group: group %r produced no "
+                            "events from event_indices %s. Skipping.",
+                            label,
+                            group.event_indices,
+                        )
+                        continue
+                # --- condition_names mode (T-024) ---
+                else:
+                    subset_event_id = {
+                        cond: auto_event_id[cond]
+                        for cond in group.condition_names
+                        if cond in auto_event_id
+                    }
+                    if not subset_event_id:
+                        logger.warning(
+                            "create_epochs_per_group: group %r has no matching "
+                            "conditions in event_id. Skipping.",
+                            label,
+                        )
+                        continue
+                    # Filter events to only include this group
+                    valid_codes = set(subset_event_id.values())
+                    mask = np.isin(events[:, 2], list(valid_codes))
+                    group_events = events[mask]
+                    if len(group_events) == 0:
+                        continue
+
+                epochs = mne.Epochs(
+                    raw,
+                    group_events,
+                    event_id=subset_event_id,
+                    tmin=group.tmin,
+                    tmax=group.tmax,
+                    baseline=(group.baseline_tmin, group.baseline_tmax),
+                    reject=reject,
+                    preload=True,
+                    verbose=False,
+                )
+                result[label] = epochs
+            return result
+        except MNEOperationError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f"create_epochs_per_group() failed: {exc}",
                 mne_exception=exc,
             ) from exc
 

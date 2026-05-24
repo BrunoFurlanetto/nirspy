@@ -41,10 +41,14 @@ def create_app(*, debug: bool = False) -> dash.Dash:
     from nirspy.gui.callbacks import io_callbacks as _io  # noqa: F401
     from nirspy.gui.callbacks import param_callbacks as _pm  # noqa: F401
     from nirspy.gui.callbacks import pipeline_callbacks as _pc  # noqa: F401
+    from nirspy.gui.callbacks import runtime_callbacks as _rt  # noqa: F401
     from nirspy.gui.callbacks import tutorial_callbacks as _tu  # noqa: F401
     from nirspy.gui.callbacks import viz_callbacks as _vz  # noqa: F401
 
+    # HRF runtime dialog registers its own callbacks on import (T-028)
+    from nirspy.gui.components import hrf_runtime_dialog as _hrf_dlg  # noqa: F401
+
     # Silence unused import warning
-    _ = (_pc, _io, _pm, _ex, _vz, _cv, _tu)
+    _ = (_pc, _io, _pm, _ex, _vz, _cv, _tu, _rt, _hrf_dlg)
 
     return app

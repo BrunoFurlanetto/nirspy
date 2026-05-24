@@ -56,6 +56,70 @@ def _validate_condition_window(name: str, window: ConditionWindow) -> None:
 
 
 @dataclass(frozen=True)
+class ConditionGroup:
+    """A named group of SNIRF conditions sharing temporal parameters.
+
+    Used by ``BlockAverageParams.per_condition_groups`` to let users
+    aggregate multiple SNIRF condition keys under a custom label with
+    shared tmin/tmax/baseline windows. The label becomes the key in
+    the resulting ``dict[str, Evoked]``.
+
+    Modes (D8)
+    ----------
+    Exactly one of ``condition_names`` or ``event_indices`` must be
+    non-empty.  Using both simultaneously is forbidden — ``__post_init__``
+    raises :class:`~nirspy.domain.exceptions.ValidationError`.
+
+    condition_names:
+        Classic mode (T-024): groups all occurrences of the listed
+        SNIRF condition keys together.
+    event_indices:
+        Timeline mode (T-030): groups specific occurrences identified by
+        their chronological index in ``raw.annotations`` (sorted by onset).
+        Index 0 = first occurrence across *all* stim annotations.
+    """
+
+    label: str
+    condition_names: list[str] = field(default_factory=list)
+    tmin: float = -2.0
+    tmax: float = 18.0
+    baseline_tmin: float = -2.0
+    baseline_tmax: float = 0.0
+    event_indices: list[int] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Enforce mutual exclusion between condition_names and event_indices."""
+        has_names = bool(self.condition_names)
+        has_indices = bool(self.event_indices)
+        if has_names and has_indices:
+            raise ValidationError(
+                f"ConditionGroup {self.label!r}: condition_names and "
+                "event_indices are mutually exclusive (D8). "
+                "Populate one or the other, not both."
+            )
+        if not has_names and not has_indices:
+            raise ValidationError(
+                f"ConditionGroup {self.label!r}: either condition_names or "
+                "event_indices must be non-empty."
+            )
+
+
+def _validate_condition_group(name: str, group: ConditionGroup) -> None:
+    """Raise :class:`ValidationError` if *group* has invalid ranges."""
+    if group.tmin >= group.tmax:
+        raise ValidationError(
+            f"ConditionGroup {name!r}: tmin ({group.tmin}) "
+            f"must be < tmax ({group.tmax})."
+        )
+    if group.baseline_tmin > group.baseline_tmax:
+        raise ValidationError(
+            f"ConditionGroup {name!r}: baseline_tmin "
+            f"({group.baseline_tmin}) must be <= baseline_tmax "
+            f"({group.baseline_tmax})."
+        )
+
+
+@dataclass(frozen=True)
 class BlockAverageParams:
     """Parameters for block averaging (HRF computation).
 
@@ -88,6 +152,9 @@ class BlockAverageParams:
     amplitude_threshold: float = 80e-6
     pick_conditions: list[str] | None = field(default=None)
     per_condition_windows: dict[str, ConditionWindow] = field(
+        default_factory=dict,
+    )
+    per_condition_groups: dict[str, ConditionGroup] = field(
         default_factory=dict,
     )
 
@@ -124,6 +191,26 @@ class BlockAverageParams:
                 else:
                     coerced[key] = val
             object.__setattr__(self, "per_condition_windows", coerced)
+
+        # Mutual exclusion: per_condition_windows OR per_condition_groups (D3)
+        if self.per_condition_windows and self.per_condition_groups:
+            raise ValidationError(
+                "BlockAverageParams: per_condition_windows and "
+                "per_condition_groups are mutually exclusive (D3). "
+                "Use one or the other, not both."
+            )
+
+        # Coerce raw dicts to ConditionGroup for YAML round-trip.
+        # event_indices defaults to [] when absent so legacy YAML (T-024,
+        # condition_names only) continues to deserialise without changes.
+        if self.per_condition_groups:
+            coerced_groups: dict[str, ConditionGroup] = {}
+            for grp_key, grp_val in self.per_condition_groups.items():
+                if isinstance(grp_val, dict):
+                    coerced_groups[grp_key] = ConditionGroup(**grp_val)
+                else:
+                    coerced_groups[grp_key] = grp_val
+            object.__setattr__(self, "per_condition_groups", coerced_groups)
 
 
 _BA_SPEC = BlockSpec(
@@ -244,17 +331,34 @@ class BlockAverageBlock:
         else:
             used_event_id = event_id
 
-        # Validate per_condition_windows keys exist in event_id
-        if self.params.per_condition_windows:
-            unknown = (
-                set(self.params.per_condition_windows) - set(used_event_id)
-            )
+        # Filter per_condition_windows to only keys present in event_id.
+        # Stale keys can appear when the user swaps the SNIRF file while
+        # per-condition windows are already configured. Raising would give
+        # a confusing error; silently discarding (with warning) is correct
+        # because the GUI sync callback (sync_conditions_on_path_change)
+        # already removed them in the GUI path -- this is defence-in-depth
+        # for YAML-loaded pipelines or any other path that bypasses the GUI.
+        # Restores T-012 hotfix (2d7b63d) regressed by T-024 (#37).
+        filtered_pcw: dict[str, ConditionWindow] = dict(
+            self.params.per_condition_windows
+        )
+        if filtered_pcw:
+            unknown = set(filtered_pcw) - set(used_event_id)
             if unknown:
-                raise ValidationError(
+                import warnings
+
+                warnings.warn(
                     f"BlockAverageBlock: per_condition_windows contains "
-                    f"condition(s) {sorted(unknown)} not found in "
-                    f"event_id {sorted(used_event_id.keys())}."
+                    f"condition(s) {sorted(unknown)} not found in the current "
+                    f"SNIRF event_id {sorted(used_event_id.keys())}. "
+                    f"These entries will be skipped (stale keys from a "
+                    f"previous SNIRF file).",
+                    UserWarning,
+                    stacklevel=2,
                 )
+                filtered_pcw = {
+                    k: v for k, v in filtered_pcw.items() if k in used_event_id
+                }
 
         # Build rejection dict
         reject: dict[str, float] | None = None
@@ -264,8 +368,34 @@ class BlockAverageBlock:
                 "hbr": self.params.amplitude_threshold,
             }
 
+        # ---- Per-condition-groups path (T-024) ----
+        if self.params.per_condition_groups:
+            # Validate each group
+            for grp_name, grp in self.params.per_condition_groups.items():
+                _validate_condition_group(grp_name, grp)
+
+            epochs_dict = self._adapter.create_epochs_per_group(
+                raw,
+                groups=self.params.per_condition_groups,
+                reject=reject,
+            )
+            evoked_dict = self._adapter.average_epochs(epochs_dict)
+
+            metadata: dict[str, Any] = {
+                "conditions": list(evoked_dict.keys()),
+                "n_conditions": len(evoked_dict),
+                "n_epochs_total": sum(
+                    len(ep.events) for ep in epochs_dict.values()
+                ),
+                "per_condition_groups_used": True,
+                "tmin": self.params.tmin,
+                "tmax": self.params.tmax,
+            }
+            for grp_label, ep in epochs_dict.items():
+                metadata[f"n_epochs_{grp_label}"] = len(ep.events)
+
         # ---- Per-condition path vs legacy single-Epochs path ----
-        if self.params.per_condition_windows:
+        elif filtered_pcw:
             default_window = (
                 self.params.tmin,
                 self.params.tmax,
@@ -276,7 +406,7 @@ class BlockAverageBlock:
                 raw,
                 used_event_id,
                 default_window=default_window,
-                per_condition_windows=self.params.per_condition_windows,
+                per_condition_windows=filtered_pcw,
                 reject=reject,
             )
             evoked_dict = self._adapter.average_epochs(epochs_dict)
@@ -285,11 +415,11 @@ class BlockAverageBlock:
             windows_used: dict[str, dict[str, float]] = {}
             n_epochs_total = 0
             skipped_conditions: list[str] = []
-            metadata: dict[str, Any] = {}
+            metadata = {}
 
             for cond in used_event_id:
-                if cond in self.params.per_condition_windows:
-                    w = self.params.per_condition_windows[cond]
+                if cond in filtered_pcw:
+                    w = filtered_pcw[cond]
                     windows_used[cond] = {
                         "tmin": w.tmin,
                         "tmax": w.tmax,

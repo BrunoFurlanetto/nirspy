@@ -63,6 +63,11 @@ def _build_pipeline_from_state(
             and dataclasses.is_dataclass(spec.params_class)
             and params_dict
         ):
+            # Strip GUI-only meta-fields (prefixed with "_") before passing
+            # to the frozen params dataclass which rejects unknown kwargs.
+            params_dict = {
+                k: v for k, v in params_dict.items() if not k.startswith("_")
+            }
             try:
                 params_instance = spec.params_class(**params_dict)
             except (TypeError, ValueError) as exc:
