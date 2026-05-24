@@ -451,7 +451,68 @@ class MNEAdapter:
                 mne_exception=exc,
             ) from exc
 
-        # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Signal Enhancement (v0.4)
+    # ------------------------------------------------------------------
+
+    def short_channel_regression(
+        self,
+        raw: mne.io.BaseRaw,
+        max_dist: float = 0.015,
+    ) -> mne.io.BaseRaw:
+        """Regress out short-channel signals from long channels.
+
+        Short-separation channels (source-detector distance <= max_dist)
+        capture systemic physiology. This method uses linear regression to
+        remove their contribution from long channels.
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw with hbo/hbr channels (post Beer-Lambert).
+        max_dist:
+            Maximum source-detector distance in meters to classify a
+            channel as 'short'. Default 0.015 m (15 mm).
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Raw with short-channel contributions regressed out of long
+            channels. Short channels are dropped from the output.
+
+        Raises
+        ------
+        MNEOperationError
+            When MNE raises any exception during regression.
+        """
+        try:
+            from mne_nirs.signal_enhancement import (
+                short_channel_regression as _mne_nirs_scr,
+            )
+
+            return _mne_nirs_scr(raw, max_dist=max_dist)
+        except ImportError:
+            pass
+
+        # Fallback: use mne.preprocessing.nirs if available (MNE >= 1.4)
+        try:
+            result = mne.preprocessing.nirs.short_channel_regression(
+                raw, max_dist=max_dist
+            )
+            return result
+        except AttributeError as exc:
+            raise MNEOperationError(
+                'short_channel_regression() requires mne-nirs or MNE >= 1.4. '
+                'Neither mne_nirs.signal_enhancement.short_channel_regression '
+                'nor mne.preprocessing.nirs.short_channel_regression is available.'
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise MNEOperationError(
+                f'short_channel_regression() failed: {exc}',
+                mne_exception=exc,
+            ) from exc
+
+    # ------------------------------------------------------------------
     # Quality Control (Etapa 3)
     # ------------------------------------------------------------------
 

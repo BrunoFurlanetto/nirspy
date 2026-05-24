@@ -45,6 +45,10 @@ from nirspy.blocks.quality import (
     ScalpCouplingIndexParams,
 )
 from nirspy.blocks.registry import BlockRegistry, register, registry
+from nirspy.blocks.signal_enhancement import (
+    ShortChannelRegressionBlock,
+    ShortChannelRegressionParams,
+)
 
 # Register built-in block classes (not instances -- ADR-009)
 registry.register("load_snirf", LoadSnirfBlock)
@@ -58,6 +62,7 @@ registry.register("scalp_coupling_index", ScalpCouplingIndexBlock)
 registry.register("prune_channels", PruneChannelsBlock)
 registry.register("block_average", BlockAverageBlock)
 registry.register("manual_channel_exclude", ManualChannelExcludeBlock)
+registry.register("short_channel_regression", ShortChannelRegressionBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -84,6 +89,8 @@ __all__ = [
     "TDDRParams",
     "WaveletBlock",
     "WaveletParams",
+    "ShortChannelRegressionBlock",
+    "ShortChannelRegressionParams",
     "register",
     "registry",
 ]
