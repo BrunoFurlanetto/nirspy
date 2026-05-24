@@ -15,14 +15,10 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockResult, BlockSpec
-from nirspy.domain.data_types import DataType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -56,8 +52,9 @@ class TestRenderRuntimeDialog:
 
     def test_returns_modal(self) -> None:
         """render_runtime_dialog must return a dbc.Modal."""
-        from nirspy.gui.components.runtime_dialog import render_runtime_dialog
         import dash_bootstrap_components as dbc
+
+        from nirspy.gui.components.runtime_dialog import render_runtime_dialog
 
         spec = _spec_for("optical_density")
         modal = render_runtime_dialog(spec, 0, 5)
@@ -203,6 +200,7 @@ class TestStartInteractiveRun:
 
     def test_no_clicks_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import start_interactive_run
 
         result = start_interactive_run(None, None, None)
@@ -210,6 +208,7 @@ class TestStartInteractiveRun:
 
     def test_empty_state_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import start_interactive_run
 
         result = start_interactive_run(1, None, None)
@@ -284,6 +283,7 @@ class TestCancelRun:
 
     def test_no_clicks_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import cancel_run
 
         result = cancel_run(None, None)
@@ -328,6 +328,7 @@ class TestAdvanceRun:
     def test_no_clicks_returns_no_update(self) -> None:
         """advance_run now accepts hrf_state as third argument (T-028)."""
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
         result = advance_run(None, None, None)
@@ -378,6 +379,7 @@ class TestAdvanceRun:
 
     def test_advance_idle_state_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
         exec_state = {"runner_id": "", "current_idx": -1, "status": "idle"}
@@ -394,6 +396,7 @@ class TestSkipBlock:
 
     def test_no_clicks_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import skip_block
 
         result = skip_block(None, None)
@@ -430,6 +433,7 @@ class TestSkipBlock:
 
     def test_skip_idle_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import skip_block
 
         exec_state = {"runner_id": "", "status": "idle"}

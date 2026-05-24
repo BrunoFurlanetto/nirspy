@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
-
-import pytest
 
 
 class TestMontageIO:
@@ -81,6 +77,7 @@ class TestProbeHeadSilhouette:
 
     def test_head_traces_present(self) -> None:
         import plotly.graph_objects as go
+
         from nirspy.gui.components.probe_viewer import _draw_head_silhouette
 
         fig = go.Figure()
@@ -90,6 +87,7 @@ class TestProbeHeadSilhouette:
 
     def test_head_traces_zero_scale_fallback(self) -> None:
         import plotly.graph_objects as go
+
         from nirspy.gui.components.probe_viewer import _draw_head_silhouette
 
         fig = go.Figure()

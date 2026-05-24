@@ -35,7 +35,6 @@ from nirspy.gui.components.condition_groups_editor import (
 )
 from nirspy.gui.components.param_editor import render_param_editor
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -349,16 +348,15 @@ class TestToggleHRFModeCallback:
         new_mode: str,
         pipeline_state: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        from nirspy.gui.callbacks.param_callbacks import toggle_hrf_mode
-
         # Simulate ctx
-        import dash
+
+        from nirspy.gui.callbacks.param_callbacks import toggle_hrf_mode
 
         ctx_mock = MagicMock()
         ctx_mock.triggered_id = {"type": "cg-mode-radio", "instance_id": instance_id}
         ctx_mock.triggered = [{"value": new_mode}]
 
-        orig_ctx = dash.ctx
+
         try:
             import nirspy.gui.callbacks.param_callbacks as mod
 

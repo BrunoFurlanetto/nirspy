@@ -17,16 +17,10 @@ Covers:
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
-from unittest.mock import MagicMock
-
-import pytest
 
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockSpec
-from nirspy.domain.data_types import DataType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,8 +59,9 @@ class TestRenderHrfRuntimeDialog:
     """Unit tests for the render_hrf_runtime_dialog pure render function."""
 
     def test_returns_modal(self) -> None:
-        from nirspy.gui.components.hrf_runtime_dialog import render_hrf_runtime_dialog
         import dash_bootstrap_components as dbc
+
+        from nirspy.gui.components.hrf_runtime_dialog import render_hrf_runtime_dialog
 
         modal = render_hrf_runtime_dialog(_ba_spec(), 0, 5)
         assert isinstance(modal, dbc.Modal)
@@ -324,6 +319,7 @@ class TestStageNavigation:
 
     def test_advance_to_stage2_no_clicks_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.components.hrf_runtime_dialog import _hrf_advance_to_stage2
 
         result = _hrf_advance_to_stage2(None, None)
@@ -362,6 +358,7 @@ class TestStageNavigation:
 
     def test_back_to_stage1_no_clicks_returns_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.components.hrf_runtime_dialog import _hrf_back_to_stage1
 
         result = _hrf_back_to_stage1(None)
@@ -393,6 +390,7 @@ class TestAddRemoveGroup:
 
     def test_add_group_no_clicks_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.components.hrf_runtime_dialog import _hrf_add_group
 
         result = _hrf_add_group(None, None, None)
@@ -428,9 +426,11 @@ class TestAddRemoveGroup:
 
     def test_remove_group_no_clicks_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.components.hrf_runtime_dialog import _hrf_remove_group
 
-        result = _hrf_remove_group([None, None], {"groups": [{"label": "G"}], "available_conditions": None})
+        state = {"groups": [{"label": "G"}], "available_conditions": None}
+        result = _hrf_remove_group([None, None], state)
         assert all(r is no_update for r in result)
 
     def test_remove_group_removes_correct_index(self) -> None:
@@ -463,6 +463,7 @@ class TestSyncCallbacks:
 
     def test_sync_groups_no_labels_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.components.hrf_runtime_dialog import _hrf_sync_groups
 
         result = _hrf_sync_groups([], [], [], {})
@@ -509,6 +510,7 @@ class TestSyncCallbacks:
 
     def test_sync_stage2_times_no_times_no_update(self) -> None:
         from dash import no_update
+
         from nirspy.gui.components.hrf_runtime_dialog import _hrf_sync_stage2_times
 
         result = _hrf_sync_stage2_times([], {"groups": [], "available_conditions": None})
@@ -627,7 +629,6 @@ class TestBuildHrfParamsOverride:
         state = {"groups": groups, "available_conditions": None}
         result = build_hrf_params_override(state)
         assert result is not None
-        pcg = result["per_condition_groups"]
 
         # Strip internal marker
         override = {k: v for k, v in result.items() if k != "_hrf_mode"}
@@ -691,6 +692,7 @@ class TestImportSanity:
     def test_advance_run_has_hrf_state_param(self) -> None:
         """advance_run must accept hrf_state (added in T-028)."""
         import inspect
+
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
         sig = inspect.signature(advance_run)

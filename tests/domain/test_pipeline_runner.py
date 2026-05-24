@@ -70,7 +70,8 @@ class TestPipelineRunnerStepByStep:
         specs = []
         while not runner.is_complete:
             spec = runner.next_block()
-            if spec is None: break
+            if spec is None:
+                break
             specs.append(spec.block_id)
             runner.execute_current()
         assert specs == ["a", "b", "c"]
@@ -136,7 +137,8 @@ class TestPipelineRunnerStepByStep:
         ids = []
         while not runner.is_complete:
             spec = runner.next_block()
-            if spec is None: break
+            if spec is None:
+                break
             ids.append(spec.block_id)
             runner.execute_current()
         assert ids == ["a", "c"]
@@ -209,6 +211,7 @@ class TestPipelineRunnerMetadata:
         runner.start()
         while not runner.is_complete:
             spec = runner.next_block()
-            if spec is None: break
+            if spec is None:
+                break
             runner.execute_current()
         assert calls == [("a", 1, 2), ("b", 2, 2)]

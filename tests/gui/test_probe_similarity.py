@@ -107,19 +107,26 @@ class TestSimilarityTransform2Anchors:
 
     def test_two_anchors_uniform_scale(self, simple_montage):
         s = simple_montage
-        bd1 = _dist((s["sources"][0][0], s["sources"][0][1]), (s["detectors"][0][0], s["detectors"][0][1]))
-        bd2 = _dist((s["sources"][0][0], s["sources"][0][1]), (s["detectors"][1][0], s["detectors"][1][1]))
+        src0 = (s["sources"][0][0], s["sources"][0][1])
+        det0 = (s["detectors"][0][0], s["detectors"][0][1])
+        det1 = (s["detectors"][1][0], s["detectors"][1][1])
+        bd1 = _dist(src0, det0)
+        bd2 = _dist(src0, det1)
         result = similarity_transform_probe(s, [["S1_D1", "F3"], ["S2_D2", "P4"]])
         r = result
-        ad1 = _dist((r["sources"][0][0], r["sources"][0][1]), (r["detectors"][0][0], r["detectors"][0][1]))
-        ad2 = _dist((r["sources"][0][0], r["sources"][0][1]), (r["detectors"][1][0], r["detectors"][1][1]))
+        rsrc0 = (r["sources"][0][0], r["sources"][0][1])
+        rdet0 = (r["detectors"][0][0], r["detectors"][0][1])
+        rdet1 = (r["detectors"][1][0], r["detectors"][1][1])
+        ad1 = _dist(rsrc0, rdet0)
+        ad2 = _dist(rsrc0, rdet1)
         assert abs(ad1 / bd1 - ad2 / bd2) < 1e-9
 
 
 class TestSimilarityTransform3PlusAnchors:
 
     def test_three_anchors_least_squares(self, large_montage):
-        result = similarity_transform_probe(large_montage, [["S1_D1", "F3"], ["S2_D2", "F4"], ["S3_D3", "Pz"]])
+        anchors = [["S1_D1", "F3"], ["S2_D2", "F4"], ["S3_D3", "Pz"]]
+        result = similarity_transform_probe(large_montage, anchors)
         assert result["sources"] != large_montage["sources"]
 
     def test_three_anchors_mean_error_bounded(self, large_montage):
@@ -143,7 +150,7 @@ class TestGeometryPreservation:
                 rb.append(db)
                 ra.append(da)
         if len(rb) >= 2:
-            sr = [a / b for a, b in zip(ra, rb)]
+            sr = [a / b for a, b in zip(ra, rb, strict=True)]
             for s in sr[1:]:
                 assert abs(s - sr[0]) < 1e-9
 
@@ -240,7 +247,12 @@ class TestEdgeCases:
         mid = _midpoint(result, "S1_D1")
         assert abs(mid[0] - _TEN_TWENTY["Cz"][0]) < 1e-9
 
-    @pytest.mark.xfail(reason="Bug: similarity_transform_probe uses anchors[0][0] instead of first valid anchor when n==1 after filtering")
+    @pytest.mark.xfail(
+        reason=(
+            "Bug: similarity_transform_probe uses anchors[0][0]"
+            " instead of first valid anchor when n==1 after filtering"
+        )
+    )
     def test_mixed_valid_and_invalid_anchors(self, simple_montage):
         anchors = [["S99_D99", "Cz"], ["S1_D1", "ZZZZZ"], ["S1_D1", "Cz"]]
         result = similarity_transform_probe(simple_montage, anchors)
@@ -261,24 +273,36 @@ class TestProbeGraphClickMultiAnchor:
 
     def test_click_1020_without_selection_noop(self, view_montage):
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
-        result = probe_graph_click({"points": [{"customdata": "1020:Cz"}]}, "view", None, view_montage, [], None, None, [])
+        click = {"points": [{"customdata": "1020:Cz"}]}
+        result = probe_graph_click(
+            click, "view", None, view_montage, [], None, None, [],
+        )
         assert all(r is no_update for r in result)
 
     def test_click_channel_selects_it(self, view_montage):
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
-        new_sel, *_ = probe_graph_click({"points": [{"customdata": "S1_D1"}]}, "view", None, view_montage, [], None, None, [])
+        click = {"points": [{"customdata": "S1_D1"}]}
+        new_sel, *_ = probe_graph_click(
+            click, "view", None, view_montage, [], None, None, [],
+        )
         assert new_sel == "S1_D1"
 
     def test_click_same_channel_deselects(self, view_montage):
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
-        new_sel, *_ = probe_graph_click({"points": [{"customdata": "S1_D1"}]}, "view", "S1_D1", view_montage, [], None, None, [])
+        click = {"points": [{"customdata": "S1_D1"}]}
+        new_sel, *_ = probe_graph_click(
+            click, "view", "S1_D1", view_montage, [], None, None, [],
+        )
         assert new_sel is None
 
     def test_second_anchor_accumulates(self, view_montage):
         from nirspy.gui.callbacks.runtime_callbacks import probe_graph_click
         new_sel, updated, _o, _f, new_anchors, _b = probe_graph_click(
-            {"points": [{"customdata": "1020:C4"}]}, "view", "S2_D2", view_montage, [], None, None, [["S1_D1", "C3"]],
+            {"points": [{"customdata": "1020:C4"}]},
+            "view", "S2_D2", view_montage, [], None, None,
+            [["S1_D1", "C3"]],
         )
         assert new_sel is None
         assert len(new_anchors) == 2
@@ -298,24 +322,37 @@ class TestProbeResetAnchors:
 
     def test_no_clicks_returns_no_update(self):
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import probe_reset_anchors
         assert all(r is no_update for r in probe_reset_anchors(None, None, None, None, None))
 
     def test_positioning_mode_returns_no_update(self):
         from dash import no_update
+
         from nirspy.gui.callbacks.runtime_callbacks import probe_reset_anchors
-        assert all(r is no_update for r in probe_reset_anchors(1, {"sources": [[0, 0]], "detectors": [[1, 0]]}, [], None, "positioning"))
+        montage = {"sources": [[0, 0]], "detectors": [[1, 0]]}
+        result = probe_reset_anchors(
+            1, montage, [], None, "positioning",
+        )
+        assert all(r is no_update for r in result)
 
     def test_resets_anchors_and_rebuilds(self):
         from nirspy.gui.callbacks.runtime_callbacks import probe_reset_anchors
-        a_store, badges, fig = probe_reset_anchors(1, {"sources": [[0.0, 0.3]], "detectors": [[0.3, 0.0]]}, [], None, "view")
+        montage = {"sources": [[0.0, 0.3]], "detectors": [[0.3, 0.0]]}
+        a_store, badges, fig = probe_reset_anchors(
+            1, montage, [], None, "view",
+        )
         assert a_store == []
         assert badges is not None and fig is not None
 
     def test_reset_preserves_exclusions(self):
-        from nirspy.gui.callbacks.runtime_callbacks import probe_reset_anchors
         import plotly.graph_objects as go
-        a_store, _, fig = probe_reset_anchors(1, {"sources": [[0.0, 0.3]], "detectors": [[0.3, 0.0]]}, ["S1_D1"], None, "view")
+
+        from nirspy.gui.callbacks.runtime_callbacks import probe_reset_anchors
+        montage = {"sources": [[0.0, 0.3]], "detectors": [[0.3, 0.0]]}
+        a_store, _, fig = probe_reset_anchors(
+            1, montage, ["S1_D1"], None, "view",
+        )
         assert a_store == [] and isinstance(fig, go.Figure)
 
 
