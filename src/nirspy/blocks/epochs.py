@@ -13,6 +13,7 @@ from typing import Any, ClassVar
 import mne
 import mne.io
 
+from nirspy.blocks.analysis import ConditionGroup, ConditionWindow
 from nirspy.domain.block import BlockResult, BlockSpec
 from nirspy.domain.data_types import DataType
 from nirspy.domain.exceptions import ValidationError
@@ -48,6 +49,16 @@ class EpochsExtractionParams:
     event_id:
         Optional mapping of condition names to event codes.
         None = use all annotation-derived events.
+    groups:
+        Optional list of ConditionGroup definitions.  When set, the block
+        uses ``MNEAdapter.create_epochs_per_group`` and returns a
+        ``dict[str, mne.Epochs]`` keyed by group label.
+        Mutually exclusive with ``per_condition_windows``.
+    per_condition_windows:
+        Optional per-condition temporal window overrides.  When set, the
+        block uses ``MNEAdapter.create_epochs_per_condition`` and returns a
+        ``dict[str, mne.Epochs]`` keyed by condition name.
+        Mutually exclusive with ``groups``.
     """
 
     tmin: float = -0.5
@@ -57,6 +68,8 @@ class EpochsExtractionParams:
     reject_amplitude: float | None = None
     reject_gradient: float | None = None
     event_id: dict[str, int] | None = field(default=None)
+    groups: list[ConditionGroup] | None = field(default=None)
+    per_condition_windows: dict[str, ConditionWindow] | None = field(default=None)
 
 
 _EPOCHS_SPEC = BlockSpec(
@@ -81,7 +94,12 @@ class EpochsExtractionBlock:
     Pipeline position: after Beer-Lambert and optionally after filtering/
     short-channel regression.
 
-    Output: mne.Epochs object (DataType.EPOCHS).
+    Output:
+        - ``mne.Epochs`` — legacy path (no groups, no per_condition_windows)
+        - ``dict[str, mne.Epochs]`` — when groups or per_condition_windows
+          are specified (keyed by group label / condition name respectively)
+
+    Both cases use DataType.EPOCHS as the declared output_type.
     """
 
     SPEC: ClassVar[BlockSpec] = _EPOCHS_SPEC
@@ -135,6 +153,13 @@ class EpochsExtractionBlock:
                 f"baseline_tmax ({self.params.baseline_tmax})."
             )
 
+        # Validate mutual exclusion of groups / per_condition_windows
+        if self.params.groups is not None and self.params.per_condition_windows is not None:
+            raise ValidationError(
+                "EpochsExtractionBlock: groups and per_condition_windows are "
+                "mutually exclusive. Use one or the other, not both."
+            )
+
         # Check for annotations/events
         events_from_annot, event_id = mne.events_from_annotations(
             raw, verbose=False
@@ -145,11 +170,6 @@ class EpochsExtractionBlock:
                 "Ensure the SNIRF file contains stimulus annotations."
             )
 
-        # Resolve event_id
-        used_event_id = (
-            self.params.event_id if self.params.event_id is not None else event_id
-        )
-
         # Build rejection dict
         reject: dict[str, float] | None = None
         if self.params.reject_amplitude is not None:
@@ -157,6 +177,84 @@ class EpochsExtractionBlock:
                 "hbo": self.params.reject_amplitude,
                 "hbr": self.params.reject_amplitude,
             }
+
+        metadata: dict[str, Any]
+
+        # ---- Per-groups path ----
+        if self.params.groups is not None:
+            groups_dict: dict[str, ConditionGroup] = {
+                grp.label: grp for grp in self.params.groups
+            }
+            epochs_dict = self._adapter.create_epochs_per_group(
+                raw,
+                groups=groups_dict,
+                reject=reject,
+            )
+            metadata = {
+                "tmin": self.params.tmin,
+                "tmax": self.params.tmax,
+                "groups_used": True,
+                "conditions": list(epochs_dict.keys()),
+                "n_conditions": len(epochs_dict),
+                "n_epochs_total": sum(
+                    len(ep.events) for ep in epochs_dict.values()
+                ),
+            }
+            for grp_label, ep in epochs_dict.items():
+                metadata[f"n_epochs_{grp_label}"] = len(ep.events)
+
+            return BlockResult(
+                data=epochs_dict,
+                block_id=_EPOCHS_SPEC.block_id,
+                metadata=metadata,
+            )
+
+        # ---- Per-condition-windows path ----
+        if self.params.per_condition_windows is not None:
+            # Resolve event_id
+            used_event_id = (
+                self.params.event_id
+                if self.params.event_id is not None
+                else event_id
+            )
+            default_window = (
+                self.params.tmin,
+                self.params.tmax,
+                self.params.baseline_tmin if self.params.baseline_tmin is not None
+                else self.params.tmin,
+                self.params.baseline_tmax,
+            )
+            epochs_dict = self._adapter.create_epochs_per_condition(
+                raw,
+                used_event_id,
+                default_window=default_window,
+                per_condition_windows=self.params.per_condition_windows,
+                reject=reject,
+            )
+            metadata = {
+                "tmin": self.params.tmin,
+                "tmax": self.params.tmax,
+                "per_condition_windows_used": True,
+                "conditions": list(epochs_dict.keys()),
+                "n_conditions": len(epochs_dict),
+                "n_epochs_total": sum(
+                    len(ep.events) for ep in epochs_dict.values()
+                ),
+            }
+            for cond, ep in epochs_dict.items():
+                metadata[f"n_epochs_{cond}"] = len(ep.events)
+
+            return BlockResult(
+                data=epochs_dict,
+                block_id=_EPOCHS_SPEC.block_id,
+                metadata=metadata,
+            )
+
+        # ---- Legacy single-Epochs path ----
+        # Resolve event_id
+        used_event_id = (
+            self.params.event_id if self.params.event_id is not None else event_id
+        )
 
         # Build baseline tuple
         baseline: tuple[float | None, float] = (
@@ -189,7 +287,7 @@ class EpochsExtractionBlock:
                             drop_log_summary.get(reason, 0) + 1
                         )
 
-        metadata: dict[str, Any] = {
+        metadata = {
             "n_epochs_total": n_epochs_total,
             "n_epochs_dropped": n_epochs_dropped,
             "drop_log_summary": drop_log_summary,

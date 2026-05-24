@@ -6,6 +6,7 @@ import mne
 import numpy as np
 import pytest
 
+from nirspy.blocks.analysis import ConditionGroup, ConditionWindow
 from nirspy.blocks.epochs import (
     EpochsExtractionBlock,
     EpochsExtractionParams,
@@ -190,3 +191,83 @@ class TestEpochsExtractionBlock:
         from nirspy.blocks import registry
 
         assert "epochs_extraction" in registry.list_blocks()
+
+    # ------------------------------------------------------------------
+    # ConditionGroup path (T-035)
+    # ------------------------------------------------------------------
+
+    def test_run_with_groups_returns_dict(
+        self, raw_haemo_with_events: mne.io.BaseRaw
+    ) -> None:
+        """Block returns dict[str, mne.Epochs] when groups are specified."""
+        groups = [
+            ConditionGroup(
+                label="task",
+                condition_names=["stim_A", "stim_B"],
+                tmin=-0.5,
+                tmax=4.0,
+                baseline_tmin=-0.5,
+                baseline_tmax=0.0,
+            )
+        ]
+        params = EpochsExtractionParams(tmin=-0.5, tmax=4.0, groups=groups)
+        block = EpochsExtractionBlock(params=params)
+        result = block.run(None, {"prev": raw_haemo_with_events})
+
+        assert isinstance(result, BlockResult)
+        assert isinstance(result.data, dict)
+        assert "task" in result.data
+        assert isinstance(result.data["task"], mne.Epochs)
+        assert result.metadata["groups_used"] is True
+        assert result.metadata["n_epochs_task"] > 0
+
+    # ------------------------------------------------------------------
+    # per_condition_windows path (T-035)
+    # ------------------------------------------------------------------
+
+    def test_run_with_per_condition_windows_returns_dict(
+        self, raw_haemo_with_events: mne.io.BaseRaw
+    ) -> None:
+        """Block returns dict[str, mne.Epochs] when per_condition_windows set."""
+        pcw = {
+            "stim_A": ConditionWindow(
+                tmin=-0.5, tmax=3.0, baseline_tmin=-0.5, baseline_tmax=0.0
+            ),
+        }
+        params = EpochsExtractionParams(
+            tmin=-0.5, tmax=4.0, per_condition_windows=pcw
+        )
+        block = EpochsExtractionBlock(params=params)
+        result = block.run(None, {"prev": raw_haemo_with_events})
+
+        assert isinstance(result, BlockResult)
+        assert isinstance(result.data, dict)
+        # stim_A should use custom window; stim_B falls back to default
+        assert result.metadata["per_condition_windows_used"] is True
+        assert result.metadata["n_conditions"] >= 1
+
+    def test_groups_and_per_condition_windows_mutually_exclusive(
+        self, raw_haemo_with_events: mne.io.BaseRaw
+    ) -> None:
+        """Block raises ValidationError when both groups and pcw are set."""
+        groups = [
+            ConditionGroup(
+                label="task",
+                condition_names=["stim_A"],
+                tmin=-0.5,
+                tmax=4.0,
+                baseline_tmin=-0.5,
+                baseline_tmax=0.0,
+            )
+        ]
+        pcw = {
+            "stim_A": ConditionWindow(
+                tmin=-0.5, tmax=3.0, baseline_tmin=-0.5, baseline_tmax=0.0
+            ),
+        }
+        params = EpochsExtractionParams(
+            tmin=-0.5, tmax=4.0, groups=groups, per_condition_windows=pcw
+        )
+        block = EpochsExtractionBlock(params=params)
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            block.run(None, {"prev": raw_haemo_with_events})
