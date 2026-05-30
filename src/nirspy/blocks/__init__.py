@@ -57,6 +57,10 @@ from nirspy.blocks.quality import (
     ScalpCouplingIndexParams,
 )
 from nirspy.blocks.registry import BlockRegistry, register, registry
+from nirspy.blocks.report import (
+    HTMLReportBlock,
+    HTMLReportParams,
+)
 from nirspy.blocks.signal_enhancement import (
     ShortChannelRegressionBlock,
     ShortChannelRegressionParams,
@@ -78,6 +82,7 @@ registry.register("short_channel_regression", ShortChannelRegressionBlock)
 registry.register("epochs_extraction", EpochsExtractionBlock)
 registry.register("export_table", ExportTableBlock)
 registry.register("glm", GLMBlock)
+registry.register("html_report", HTMLReportBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -94,6 +99,8 @@ __all__ = [
     "ExportTableParams",
     "GLMBlock",
     "GLMParams",
+    "HTMLReportBlock",
+    "HTMLReportParams",
     "ManualChannelExcludeBlock",
     "ManualChannelExcludeParams",
     "LoadSnirfBlock",

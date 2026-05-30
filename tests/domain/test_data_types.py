@@ -12,7 +12,7 @@ class TestDataTypeEnum:
 
     def test_all_expected_members_exist(self) -> None:
         names = {m.name for m in DataType}
-        expected = {"NONE", "RAW", "RAW_OD", "RAW_HAEMO", "EPOCHS", "EVOKED", "DATAFRAME", "ANY"}
+        expected = {"NONE", "RAW", "RAW_OD", "RAW_HAEMO", "EPOCHS", "EVOKED", "DATAFRAME", "ANY", "GLM_RESULT"}
         assert names == expected
 
     def test_values_are_lowercase_strings(self) -> None:
@@ -62,6 +62,7 @@ class TestDataTypeEnum:
             (DataType.EVOKED, "evoked"),
             (DataType.DATAFRAME, "dataframe"),
             (DataType.ANY, "any"),
+            (DataType.GLM_RESULT, "glm_result"),
         ],
     )
     def test_member_values(self, member: DataType, expected_value: str) -> None:
