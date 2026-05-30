@@ -251,6 +251,32 @@ def create_layout() -> dbc.Container:
                 tab_id="tab-hrf",
             ),
             dbc.Tab(
+                html.Div(
+                    [
+                        html.Div(
+                            id="glm-summary-container",
+                            className="mb-3",
+                        ),
+                        dcc.Dropdown(
+                            id="glm-regressor-selector",
+                            placeholder="Select regressor...",
+                            disabled=True,
+                            className="mb-3",
+                        ),
+                        html.Div(
+                            id="glm-topo-container",
+                            children=html.P(
+                                "Run pipeline with GLM block to see results.",
+                                className="text-muted text-center py-4",
+                            ),
+                        ),
+                    ],
+                    className="p-3",
+                ),
+                label="GLM",
+                tab_id="tab-glm",
+            ),
+            dbc.Tab(
                 render_converter_tab(),
                 label="Convert",
                 tab_id="tab-convert",
