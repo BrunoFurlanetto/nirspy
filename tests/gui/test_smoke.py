@@ -118,15 +118,17 @@ class TestCatalogTooltipWiring:
         result = render_block_catalog(registry)
         assert "Tooltip" in str(result)
 
-    def test_catalog_has_eight_tooltips(self) -> None:
+    def test_catalog_has_correct_tooltips(self) -> None:
         from nirspy.gui.components.block_catalog import render_block_catalog
+        from nirspy.gui.components.tooltips import tooltip_for
         result = render_block_catalog(registry)
-        assert str(result).count("Tooltip(") == 11
+        expected = sum(1 for bid in registry.list_blocks() if tooltip_for(bid) is not None)
+        assert str(result).count("Tooltip(") == expected
 
-    def test_catalog_still_has_eight_items(self) -> None:
+    def test_catalog_still_has_correct_items(self) -> None:
         from nirspy.gui.components.block_catalog import render_block_catalog
         result = render_block_catalog(registry)
-        assert str(result).count("ListGroupItem") == 11
+        assert str(result).count("ListGroupItem") == len(registry.list_blocks())
 
 
 class TestQCRegression:

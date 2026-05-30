@@ -198,7 +198,7 @@ class HTMLReportBlock:
     def _glm_to_table(self, glm_result: Any) -> str:
         """Convert GLMResult to HTML summary table."""
         df = glm_result.to_dataframe()
-        return df.to_html(classes="dataframe", index=False, max_rows=100)
+        return str(df.to_html(classes="dataframe", index=False, max_rows=100))
 
     def _glm_to_plots(self, glm_result: Any) -> list[str]:
         """Generate Plotly HTML snippets for each regressor."""

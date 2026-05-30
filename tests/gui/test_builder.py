@@ -39,11 +39,10 @@ class TestBlockCatalog:
             spec: BlockSpec = block_cls.SPEC  # type: ignore[attr-defined]
             assert spec.display_name in html_str
 
-    def test_catalog_has_eight_blocks(self) -> None:
+    def test_catalog_has_correct_block_count(self) -> None:
         result = render_block_catalog(registry)
         html_str = str(result)
-        # Tooltips also target catalog-item IDs, so count ListGroupItem occurrences
-        assert html_str.count("ListGroupItem") == 11
+        assert html_str.count("ListGroupItem") == len(registry.list_blocks())
 
     def test_catalog_shows_io_types(self) -> None:
         result = render_block_catalog(registry)
