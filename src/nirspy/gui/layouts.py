@@ -314,6 +314,15 @@ def create_layout() -> dbc.Container:
                 id="hrf-runtime-state",
                 data={"groups": [], "available_conditions": None},
             ),
+            # GLM specialized dialog state (T-040)
+            dcc.Store(
+                id="glm-runtime-state",
+                data={
+                    "available_conditions": [],
+                    "condition_durations": {},
+                    "groups": [],
+                },
+            ),
         ]
     )
 
