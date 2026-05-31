@@ -48,6 +48,7 @@ Stores
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 import dash_bootstrap_components as dbc
@@ -345,9 +346,12 @@ def build_glm_params_override(
     condition_durations: dict[str, float] = {}
     for cond, val in raw_durations.items():
         try:
-            condition_durations[cond] = float(val)
+            parsed = float(val)
         except (TypeError, ValueError):
             continue
+        if not (math.isfinite(parsed) and parsed > 0):
+            continue  # silently drop invalid — input has min=0.1 but JS can bypass
+        condition_durations[cond] = parsed
     if condition_durations:
         override["condition_durations"] = condition_durations
 
