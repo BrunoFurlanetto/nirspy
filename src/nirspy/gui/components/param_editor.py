@@ -159,9 +159,13 @@ def _field_to_input(
     # per_condition_groups (T-025).  Both are rendered together via the
     # unified HRF-mode widget injected by render_param_editor — skip
     # individual rendering here.
-    if block_id == "block_average" and field_name in (
+    # Applies to all blocks that expose the per-condition mode widget.
+    _BLOCKS_WITH_CONDITION_WIDGET = ("block_average", "epochs_extraction")
+    if block_id in _BLOCKS_WITH_CONDITION_WIDGET and field_name in (
         "per_condition_windows",
         "per_condition_groups",
+        # epochs_extraction stores groups under "groups" (list[ConditionGroup])
+        "groups",
     ):
         return []
 
@@ -359,8 +363,9 @@ def _render_hrf_mode_widget(
     current_values: dict[str, Any],
     available_conditions: list[str] | None,
     snirf_path: str | None = None,
+    block_id: str = "block_average",
 ) -> html.Div:
-    """Render the mode toggle + active editor for BlockAverage (T-025).
+    """Render the mode toggle + active editor for blocks with per-condition support.
 
     Shows a radio with two options:
       - "Per-condition windows" (T-012, default)
@@ -369,6 +374,13 @@ def _render_hrf_mode_widget(
     Only the editor for the active mode is shown; the other is hidden.
     The active mode is determined by which dict in ``current_values`` is
     non-empty; if both are empty the default is per-condition-windows.
+
+    Parameters
+    ----------
+    block_id:
+        Registry ID of the owning block.  Passed to the sub-editors so
+        they look up the correct ParamMeta entries (min/max/step).
+        Defaults to ``"block_average"`` for backward compatibility.
     """
     pcw: dict[str, Any] = current_values.get("per_condition_windows") or {}
     pcg: dict[str, Any] = current_values.get("per_condition_groups") or {}
@@ -396,6 +408,7 @@ def _render_hrf_mode_widget(
             instance_id,
             pcw if isinstance(pcw, dict) else None,
             available_conditions=available_conditions,
+            block_id=block_id,
         ),
         style={"display": "block" if active_mode == "windows" else "none"},
         id={"type": "cg-windows-panel", "instance_id": instance_id},
@@ -411,6 +424,7 @@ def _render_hrf_mode_widget(
             available_conditions=available_conditions,
             snirf_path=snirf_path,
             active_group_label=active_label,
+            block_id=block_id,
         ),
         style={"display": "block" if active_mode == "groups" else "none"},
         id={"type": "cg-groups-panel", "instance_id": instance_id},
@@ -487,16 +501,19 @@ def render_param_editor(
 
     children: list[Any] = []
 
-    # For block_average: inject the unified HRF mode toggle widget (T-025).
+    # For block_average and epochs_extraction: inject the unified HRF/condition
+    # mode toggle widget (T-025, T-041).
     # The individual per_condition_windows / per_condition_groups fields
     # are suppressed in _field_to_input and rendered here as one unit.
-    if block_id == "block_average":
+    _BLOCKS_WITH_CONDITION_WIDGET = ("block_average", "epochs_extraction")
+    if block_id in _BLOCKS_WITH_CONDITION_WIDGET:
         children.append(
             _render_hrf_mode_widget(
                 instance_id,
                 current_values,
                 available_conditions=available_conditions,
                 snirf_path=snirf_path,
+                block_id=block_id,
             )
         )
 

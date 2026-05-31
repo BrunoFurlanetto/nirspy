@@ -88,6 +88,28 @@ def _build_pipeline_from_state(
             params_dict = {
                 k: v for k, v in params_dict.items() if not k.startswith("_")
             }
+
+            # T-041: epochs_extraction stores per-condition groups in
+            # "per_condition_groups" (a GUI-side dict keyed by label) because
+            # it reuses the block_average group callbacks.  Convert to the
+            # "groups" list[ConditionGroup] expected by EpochsExtractionParams.
+            if block_id == "epochs_extraction":
+                pcg = params_dict.pop("per_condition_groups", None)
+                if pcg and isinstance(pcg, dict):
+                    import contextlib
+
+                    from nirspy.blocks.analysis import ConditionGroup
+
+                    groups_list = []
+                    for _lbl, val in pcg.items():
+                        if isinstance(val, dict):
+                            with contextlib.suppress(TypeError, ValueError):
+                                groups_list.append(ConditionGroup(**val))
+                        elif hasattr(val, "condition_names"):
+                            groups_list.append(val)
+                    if groups_list:
+                        params_dict["groups"] = groups_list
+
             try:
                 params_instance = spec.params_class(**params_dict)
             except (TypeError, ValueError) as exc:

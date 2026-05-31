@@ -88,6 +88,7 @@ def _render_row(
     instance_id: str,
     condition: str,
     values: dict[str, float],
+    block_id: str = "block_average",
 ) -> dbc.Row:
     """Render one read-only-name row with four numeric window inputs.
 
@@ -97,6 +98,13 @@ def _render_row(
 
     Defaults to the **maximum** of the allowed range (via ParamMeta) so
     the user starts from the top and adjusts downward.
+
+    Parameters
+    ----------
+    block_id:
+        Registry ID of the owning block.  Used to look up per-block
+        ParamMeta entries (min/max/step).  Defaults to ``"block_average"``
+        for backward compatibility.
     """
     name_cell = html.Div(
         html.Span(condition, className="fw-semibold small"),
@@ -106,7 +114,7 @@ def _render_row(
     fields = ["tmin", "tmax", "baseline_tmin", "baseline_tmax"]
     inputs: list[dbc.Col] = []
     for f in fields:
-        meta = metadata_for("block_average", f)
+        meta = metadata_for(block_id, f)
         attrs: dict[str, Any] = {}
         default: float = 0.0
         if meta is not None:
@@ -141,6 +149,7 @@ def render_condition_windows_editor(
     instance_id: str,
     current_value: dict[str, Any] | None,
     available_conditions: list[str] | None = None,
+    block_id: str = "block_average",
 ) -> html.Div:
     """Render the per-condition windows editor widget.
 
@@ -154,6 +163,10 @@ def render_condition_windows_editor(
     available_conditions:
         Condition names harvested from the upstream LoadSnirf file. When
         ``None`` (or empty) the editor renders disabled with a hint.
+    block_id:
+        Registry ID of the owning block.  Determines which ParamMeta
+        entries are used for min/max/step on the numeric inputs.
+        Defaults to ``"block_average"`` for backward compatibility.
     """
     current_value = current_value or {}
     has_snirf = bool(available_conditions)
@@ -210,7 +223,7 @@ def render_condition_windows_editor(
                 "baseline_tmin": win.baseline_tmin,
                 "baseline_tmax": win.baseline_tmax,
             }
-        rows.append(_render_row(instance_id, cond, vals))
+        rows.append(_render_row(instance_id, cond, vals, block_id=block_id))
 
     hint = html.Small(
         f"{len(available_conditions or [])} condition(s) loaded from SNIRF — "
