@@ -165,6 +165,112 @@ class TestGLMResult:
         np.testing.assert_array_equal(r.get_contrast("c2"), [4.0, 5.0, 6.0])
 
 
+# ---------------------------------------------------------------------------
+# T-040 — GLMParams new fields: condition_durations and per_condition_groups
+# ---------------------------------------------------------------------------
+
+
+class TestGLMParamsT040:
+    """Tests for condition_durations and per_condition_groups fields (T-040)."""
+
+    def test_condition_durations_propagated_to_adapter(
+        self, raw_haemo_multi_condition: mne.io.BaseRaw
+    ) -> None:
+        """condition_durations must be forwarded to adapter.run_glm."""
+        from unittest.mock import MagicMock
+
+        from nirspy.domain.glm_result import GLMResult
+
+        # Build a minimal GLMResult stub
+        stub = GLMResult(
+            theta=np.zeros((1, 4)),
+            t_stats=np.zeros((1, 4)),
+            p_values=np.zeros((1, 4)),
+            mse=np.ones(4),
+            channel_names=["S1_D1 hbo", "S1_D1 hbr", "S2_D1 hbo", "S2_D1 hbr"],
+            regressor_names=["cond_A"],
+            design_matrix=np.zeros((900, 1)),
+            metadata={"conditions": ["cond_A"]},
+        )
+
+        durations = {"cond_A": 5.0, "cond_B": 3.0}
+        params = GLMParams(condition_durations=durations)
+
+        mock_adapter = MagicMock()
+        mock_adapter.run_glm.return_value = stub
+
+        GLMBlock(params=params, adapter=mock_adapter).run(
+            None, {"upstream": raw_haemo_multi_condition}
+        )
+
+        call_kwargs = mock_adapter.run_glm.call_args.kwargs
+        assert call_kwargs["condition_durations"] == durations
+
+    def test_per_condition_groups_propagated_to_adapter(
+        self, raw_haemo_multi_condition: mne.io.BaseRaw
+    ) -> None:
+        """per_condition_groups must be forwarded to adapter.run_glm."""
+        from unittest.mock import MagicMock
+
+        from nirspy.domain.glm_result import GLMResult
+
+        stub = GLMResult(
+            theta=np.zeros((1, 4)),
+            t_stats=np.zeros((1, 4)),
+            p_values=np.zeros((1, 4)),
+            mse=np.ones(4),
+            channel_names=["S1_D1 hbo", "S1_D1 hbr", "S2_D1 hbo", "S2_D1 hbr"],
+            regressor_names=["motor"],
+            design_matrix=np.zeros((900, 1)),
+            metadata={"conditions": ["motor"]},
+        )
+
+        groups = {"motor": ["cond_A", "cond_B"]}
+        params = GLMParams(per_condition_groups=groups)
+
+        mock_adapter = MagicMock()
+        mock_adapter.run_glm.return_value = stub
+
+        GLMBlock(params=params, adapter=mock_adapter).run(
+            None, {"upstream": raw_haemo_multi_condition}
+        )
+
+        call_kwargs = mock_adapter.run_glm.call_args.kwargs
+        assert call_kwargs["per_condition_groups"] == groups
+
+    def test_both_none_retrocompatible(
+        self, raw_haemo_multi_condition: mne.io.BaseRaw
+    ) -> None:
+        """When both new fields are None, adapter.run_glm still receives None for each."""
+        from unittest.mock import MagicMock
+
+        from nirspy.domain.glm_result import GLMResult
+
+        stub = GLMResult(
+            theta=np.zeros((2, 4)),
+            t_stats=np.zeros((2, 4)),
+            p_values=np.zeros((2, 4)),
+            mse=np.ones(4),
+            channel_names=["S1_D1 hbo", "S1_D1 hbr", "S2_D1 hbo", "S2_D1 hbr"],
+            regressor_names=["cond_A", "cond_B"],
+            design_matrix=np.zeros((900, 2)),
+            metadata={"conditions": ["cond_A", "cond_B"]},
+        )
+
+        params = GLMParams()  # both new fields default to None
+        mock_adapter = MagicMock()
+        mock_adapter.run_glm.return_value = stub
+
+        result = GLMBlock(params=params, adapter=mock_adapter).run(
+            None, {"upstream": raw_haemo_multi_condition}
+        )
+
+        call_kwargs = mock_adapter.run_glm.call_args.kwargs
+        assert call_kwargs["condition_durations"] is None
+        assert call_kwargs["per_condition_groups"] is None
+        assert result.block_id == "glm"
+
+
 class TestDataTypeGLMResult:
     def test_enum_value(self) -> None:
         assert DataType.GLM_RESULT == "glm_result"
