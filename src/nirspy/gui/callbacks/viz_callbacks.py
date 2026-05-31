@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from dash import Input, Output, callback
+from dash import Input, Output, callback, dcc, html
 
+from nirspy.domain.glm_result import GLMResult
 from nirspy.gui.callbacks.execution_callbacks import _VIZ_CACHE
 from nirspy.gui.components.condition_selector import (
     render_condition_selector,
 )
+from nirspy.gui.components.glm_topo import render_glm_summary, render_glm_topo
 from nirspy.gui.components.hrf_plot import render_hrf_plot
 from nirspy.gui.components.probe_viewer import render_probe_viewer
 from nirspy.gui.components.qc_dashboard import render_qc_dashboard
@@ -88,6 +90,14 @@ def _find_sci_ch_names(results: list[Any]) -> list[str] | None:
     for r in results:
         if isinstance(r.data, mne.io.BaseRaw):
             return list(r.data.ch_names)
+    return None
+
+
+def _find_glm_result(results: list[Any]) -> GLMResult | None:
+    """Find the most recent GLMResult in the execution chain."""
+    for r in reversed(results):
+        if isinstance(r.data, GLMResult):
+            return r.data
     return None
 
 
@@ -189,3 +199,48 @@ def update_hrf(
         discard_tmin=discard_tmin,
         discard_tmax=discard_tmax,
     )
+
+
+@callback(
+    Output("glm-regressor-selector", "options"),
+    Output("glm-regressor-selector", "value"),
+    Output("glm-regressor-selector", "disabled"),
+    Output("glm-summary-container", "children"),
+    Input("run-results", "data"),
+)
+def update_glm_tab(run_results: dict[str, Any] | None) -> tuple[Any, ...]:
+    """Populate GLM dropdown and summary card when results are available."""
+    results = _get_cached_results(run_results)
+    if results is None:
+        return [], None, True, ""
+    glm = _find_glm_result(results)
+    if glm is None:
+        return [], None, True, ""
+    options = [{"label": r, "value": r} for r in glm.regressor_names]
+    first = glm.regressor_names[0] if glm.regressor_names else None
+    return options, first, False, render_glm_summary(glm)
+
+
+@callback(
+    Output("glm-topo-container", "children"),
+    Input("run-results", "data"),
+    Input("glm-regressor-selector", "value"),
+)
+def update_glm_topo(
+    run_results: dict[str, Any] | None,
+    selected_regressor: str | None,
+) -> Any:
+    """Render GLM bar chart for the selected regressor."""
+    results = _get_cached_results(run_results)
+    if results is None or selected_regressor is None:
+        return html.P(
+            "Run pipeline with GLM block to see results.",
+            className="text-muted text-center py-4",
+        )
+    glm = _find_glm_result(results)
+    if glm is None or selected_regressor not in glm.regressor_names:
+        return html.P(
+            "No GLM results available.",
+            className="text-muted text-center py-4",
+        )
+    return dcc.Graph(figure=render_glm_topo(glm, selected_regressor))

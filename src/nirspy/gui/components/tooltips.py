@@ -125,6 +125,49 @@ _TOOLTIP_REGISTRY: dict[str, _TooltipEntry] = {
         ),
         reference="User-driven quality control",
     ),
+    "short_channel_regression": _TooltipEntry(
+        description=(
+            "Regress out superficial-layer noise using short-separation "
+            "channels (<8 mm). Short channels capture systemic physiology "
+            "(heart rate, respiration) that contaminates long channels. "
+            "Improves specificity of the haemodynamic response estimate."
+        ),
+        reference="Tachtsidis & Scholkmann, 2016; Yuecel et al., 2021 Section 3.4",
+    ),
+    "epochs_extraction": _TooltipEntry(
+        description=(
+            "Extract epochs time-locked to stimulus events. "
+            "Segments the continuous signal around event onsets with "
+            "configurable pre- and post-stimulus windows, baseline correction, "
+            "and optional amplitude-based rejection."
+        ),
+        reference="MNE: mne.Epochs; Yuecel et al., 2021 Section 4",
+    ),
+    "export_table": _TooltipEntry(
+        description=(
+            "Export a DataFrame result (e.g., GLM summary) to disk as "
+            "CSV or Parquet. Useful for downstream statistical analysis "
+            "in R, SPSS, or Python notebooks."
+        ),
+        reference="nirspy pipeline sink — no MNE reference",
+    ),
+    "glm": _TooltipEntry(
+        description=(
+            "First-level General Linear Model (GLM) analysis. "
+            "Fits a design matrix with condition regressors convolved with "
+            "the haemodynamic response function (HRF) to estimate "
+            "channel-level t-statistics and beta weights per condition."
+        ),
+        reference="Friston et al., 1994; mne_nirs.statistics.run_glm",
+    ),
+    "html_report": _TooltipEntry(
+        description=(
+            "Generate a standalone HTML report from pipeline results. "
+            "Embeds interactive Plotly figures and summary tables. "
+            "No external dependencies — the output file is self-contained."
+        ),
+        reference="nirspy pipeline sink — no MNE reference",
+    ),
 }
 
 

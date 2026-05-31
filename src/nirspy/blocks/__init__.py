@@ -6,7 +6,7 @@ full set.  Instantiation happens at pipeline-assembly time (ADR-009).
 
     >>> from nirspy.blocks import registry
     >>> sorted(registry.list_blocks())
-    ['bandpass_filter', 'beer_lambert', 'block_average', 'load_snirf',
+    ['bandpass_filter', 'beer_lambert', 'block_average', 'glm', 'load_snirf',
      'manual_channel_exclude', 'optical_density', 'prune_channels',
      'scalp_coupling_index', 'spline_motion_correction', 'tddr',
      'wavelet_motion_correction']
@@ -16,6 +16,18 @@ from nirspy.blocks.analysis import (
     BlockAverageBlock,
     BlockAverageParams,
     ConditionWindow,
+)
+from nirspy.blocks.epochs import (
+    EpochsExtractionBlock,
+    EpochsExtractionParams,
+)
+from nirspy.blocks.export import (
+    ExportTableBlock,
+    ExportTableParams,
+)
+from nirspy.blocks.glm import (
+    GLMBlock,
+    GLMParams,
 )
 from nirspy.blocks.load import LoadSnirfBlock, LoadSnirfParams
 from nirspy.blocks.manual_exclude import (
@@ -45,6 +57,14 @@ from nirspy.blocks.quality import (
     ScalpCouplingIndexParams,
 )
 from nirspy.blocks.registry import BlockRegistry, register, registry
+from nirspy.blocks.report import (
+    HTMLReportBlock,
+    HTMLReportParams,
+)
+from nirspy.blocks.signal_enhancement import (
+    ShortChannelRegressionBlock,
+    ShortChannelRegressionParams,
+)
 
 # Register built-in block classes (not instances -- ADR-009)
 registry.register("load_snirf", LoadSnirfBlock)
@@ -58,6 +78,11 @@ registry.register("scalp_coupling_index", ScalpCouplingIndexBlock)
 registry.register("prune_channels", PruneChannelsBlock)
 registry.register("block_average", BlockAverageBlock)
 registry.register("manual_channel_exclude", ManualChannelExcludeBlock)
+registry.register("short_channel_regression", ShortChannelRegressionBlock)
+registry.register("epochs_extraction", EpochsExtractionBlock)
+registry.register("export_table", ExportTableBlock)
+registry.register("glm", GLMBlock)
+registry.register("html_report", HTMLReportBlock)
 
 __all__ = [
     "BandpassFilterBlock",
@@ -68,6 +93,14 @@ __all__ = [
     "BlockAverageParams",
     "ConditionWindow",
     "BlockRegistry",
+    "EpochsExtractionBlock",
+    "EpochsExtractionParams",
+    "ExportTableBlock",
+    "ExportTableParams",
+    "GLMBlock",
+    "GLMParams",
+    "HTMLReportBlock",
+    "HTMLReportParams",
     "ManualChannelExcludeBlock",
     "ManualChannelExcludeParams",
     "LoadSnirfBlock",
@@ -78,6 +111,8 @@ __all__ = [
     "PruneChannelsParams",
     "ScalpCouplingIndexBlock",
     "ScalpCouplingIndexParams",
+    "ShortChannelRegressionBlock",
+    "ShortChannelRegressionParams",
     "SplineBlock",
     "SplineParams",
     "TDDRBlock",

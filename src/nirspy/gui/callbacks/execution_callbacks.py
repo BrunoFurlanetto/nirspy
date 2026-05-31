@@ -23,7 +23,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from dash import Input, Output, State, callback, html, no_update
+from dash import Input, Output, State, callback, clientside_callback, html, no_update
 
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockResult, BlockSpec
@@ -35,6 +35,26 @@ logger = logging.getLogger(__name__)
 
 # Module-level cache for MNE objects -- single-user local app.
 _VIZ_CACHE: dict[str, Any] = {}
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return [false, '', false, 'info'];
+        return [
+            true,
+            'Running pipeline… This may take a few minutes for GLM analysis.',
+            true,
+            'info'
+        ];
+    }
+    """,
+    Output("run-button", "disabled", allow_duplicate=True),
+    Output("run-status", "children", allow_duplicate=True),
+    Output("run-status", "is_open", allow_duplicate=True),
+    Output("run-status", "color", allow_duplicate=True),
+    Input("run-button", "n_clicks"),
+    prevent_initial_call=True,
+)
 
 
 def _build_pipeline_from_state(
@@ -101,6 +121,10 @@ def _build_pipeline_from_state(
     Output("run-error", "is_open"),
     Output("run-success", "children"),
     Output("run-success", "is_open"),
+    Output("run-button", "disabled"),
+    Output("run-status", "children"),
+    Output("run-status", "is_open"),
+    Output("run-status", "color"),
     Input("run-button", "n_clicks"),
     State("pipeline-state", "data"),
     State("input-file-path", "data"),
@@ -121,6 +145,7 @@ def run_pipeline_callback(
     """
     if not n_clicks or not pipeline_state:
         return (
+            no_update, no_update, no_update, no_update,
             no_update, no_update, no_update, no_update,
             no_update, no_update, no_update, no_update,
         )
@@ -150,6 +175,7 @@ def run_pipeline_callback(
             no_update, 0, 100, {"display": "none"},
             render_error(msg), True,
             "", False,
+            False, "", False, "danger",
         )
 
     # Execution
@@ -185,6 +211,7 @@ def run_pipeline_callback(
             no_update, 0, 100, {"display": "none"},
             render_error(msg), True,
             "", False,
+            False, "", False, "danger",
         )
     except Exception:  # noqa: BLE001
         logger.exception("Unexpected error during pipeline execution")
@@ -196,6 +223,7 @@ def run_pipeline_callback(
             ),
             True,
             "", False,
+            False, "", False, "danger",
         )
 
     # Cache results for viz callbacks. Clear previous entries so we don't
@@ -232,6 +260,7 @@ def run_pipeline_callback(
         f"Pipeline executed successfully "
         f"({len(results)}/{enabled_count} blocks).",
         True,
+        False, "", False, "info",
     )
 
 

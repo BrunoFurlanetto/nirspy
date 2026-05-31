@@ -100,6 +100,12 @@ def render_run_button() -> html.Div:
                 is_open=False,
                 className="mt-2",
             ),
+            dbc.Alert(
+                id="run-status",
+                is_open=False,
+                color="info",
+                className="mt-2 mb-0",
+            ),
         ],
         className="mb-3",
     )

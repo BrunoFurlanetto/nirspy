@@ -35,6 +35,9 @@ class DataType(str, Enum):
     EVOKED = "evoked"
     """MNE Evoked."""
 
+    GLM_RESULT = "glm_result"
+    """GLM statistical results (coefficients, t-stats, p-values per channel)."""
+
     DATAFRAME = "dataframe"
     """Generic pandas DataFrame."""
 

@@ -33,6 +33,7 @@ dependencies = [
     "scipy>=1.10",
     "h5py>=3.0",
     "PyWavelets>=1.4",
+    "jinja2>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -101,6 +102,21 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # plotly does not ship py.typed or stubs; suppress import-untyped.
 module = ["plotly", "plotly.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pandas does not ship py.typed; suppress import-untyped.
+module = ["pandas", "pandas.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# nilearn does not ship py.typed or stubs.
+module = ["nilearn", "nilearn.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pyarrow does not ship py.typed or stubs.
+module = ["pyarrow", "pyarrow.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

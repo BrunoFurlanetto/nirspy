@@ -17,6 +17,8 @@ import uuid
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockResult, BlockSpec
 
@@ -226,8 +228,8 @@ class TestStartInteractiveRun:
         )
 
         pipeline_state = [_make_entry("optical_density")]
-        modal_children, exec_state, _err_msg, err_open, _hrf_state = start_interactive_run(
-            1, pipeline_state, None
+        modal_children, exec_state, _err_msg, err_open, _hrf_state, _glm_state = (
+            start_interactive_run(1, pipeline_state, None)
         )
         assert exec_state["status"] == "running"
         assert exec_state["runner_id"] != ""
@@ -245,7 +247,7 @@ class TestStartInteractiveRun:
         )
 
         pipeline_state = [_make_entry("optical_density")]
-        modal_children, exec_state, _, _, _hrf = start_interactive_run(
+        modal_children, exec_state, _, _, _hrf, _glm = start_interactive_run(
             1, pipeline_state, None
         )
         assert len(modal_children) > 0
@@ -256,7 +258,7 @@ class TestStartInteractiveRun:
         from nirspy.gui.callbacks.runtime_callbacks import start_interactive_run
 
         pipeline_state = [_make_entry("nonexistent_block")]
-        _, state, _msg, err_open, _hrf = start_interactive_run(1, pipeline_state, None)
+        _, state, _msg, err_open, _hrf, _glm = start_interactive_run(1, pipeline_state, None)
         assert err_open is True
         assert state["status"] == "idle"
 
@@ -267,7 +269,7 @@ class TestStartInteractiveRun:
         )
 
         pipeline_state = [_make_entry("optical_density")]
-        _, exec_state, _, _, _hrf = start_interactive_run(1, pipeline_state, None)
+        _, exec_state, _, _, _hrf, _glm = start_interactive_run(1, pipeline_state, None)
         runner_id = exec_state["runner_id"]
         assert runner_id in _INTERACTIVE_RUNNERS
 
@@ -331,7 +333,7 @@ class TestAdvanceRun:
 
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
-        result = advance_run(None, None, None)
+        result = advance_run(None, None, None, None)
         assert all(r is no_update for r in result)
 
     def test_advance_with_more_blocks_updates_idx(self) -> None:
@@ -370,7 +372,7 @@ class TestAdvanceRun:
         _INTERACTIVE_RUNNERS[runner_id] = (mock_runner, mock_context)
 
         exec_state = {"runner_id": runner_id, "current_idx": 0, "status": "running"}
-        modal_children, new_state, *_ = advance_run(1, exec_state, None)
+        modal_children, new_state, *_ = advance_run(1, exec_state, None, None)
 
         assert new_state["current_idx"] == 1
         assert new_state["status"] == "running"
@@ -383,7 +385,7 @@ class TestAdvanceRun:
         from nirspy.gui.callbacks.runtime_callbacks import advance_run
 
         exec_state = {"runner_id": "", "current_idx": -1, "status": "idle"}
-        result = advance_run(1, exec_state, None)
+        result = advance_run(1, exec_state, None, None)
         assert all(r is no_update for r in result)
 
 
@@ -439,6 +441,157 @@ class TestSkipBlock:
         exec_state = {"runner_id": "", "status": "idle"}
         result = skip_block(1, exec_state)
         assert all(r is no_update for r in result)
+
+
+# ---------------------------------------------------------------------------
+# T-040 — _make_modal_children dispatches GLM modal + advance_run uses glm_state
+# ---------------------------------------------------------------------------
+
+
+class TestMakeModalChildrenGlmT040:
+    """Tests for the glm branch inside _make_modal_children (T-040)."""
+
+    def test_make_modal_children_glm_returns_glm_modal(self) -> None:
+        """When block_id='glm', _make_modal_children must return the GLM modal."""
+        import dash_bootstrap_components as dbc
+        import mne
+        import numpy as np
+
+        from nirspy.gui.callbacks.runtime_callbacks import _make_modal_children
+
+        # Build a minimal mock runner whose _prev_result holds a raw haemo object
+        sfreq = 10.0
+        n_times = 300
+        ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        ch_types = ["hbo", "hbr"]
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+        for ch in info["chs"]:
+            ch["loc"][3:6] = np.array([0.0, 0.0, 0.0])
+            ch["loc"][6:9] = np.array([0.03, 0.0, 0.0])
+        rng = np.random.default_rng(1)
+        data = rng.normal(0, 1e-6, size=(2, n_times))
+        raw = mne.io.RawArray(data, info, verbose=False)
+        ann = mne.Annotations(onset=[5.0], duration=[1.0], description=["stim_A"])
+        raw.set_annotations(ann)
+
+        from nirspy.domain.block import BlockResult
+
+        mock_runner = MagicMock()
+        mock_runner._prev_result = BlockResult(data=raw, block_id="beer_lambert")
+
+        spec = _spec_for("glm")
+        children = _make_modal_children(spec, 0, 3, runner=mock_runner)
+
+        assert len(children) == 1
+        modal = children[0]
+        assert isinstance(modal, dbc.Modal)
+        # GLM modal has id "glm-runtime-modal"
+        assert modal.id == "glm-runtime-modal"
+
+    def test_make_modal_children_non_glm_returns_generic_modal(self) -> None:
+        """Non-glm blocks still render the generic runtime dialog."""
+        import dash_bootstrap_components as dbc
+
+        from nirspy.gui.callbacks.runtime_callbacks import _make_modal_children
+
+        spec = _spec_for("optical_density")
+        mock_runner = MagicMock()
+        mock_runner._prev_result = None
+
+        children = _make_modal_children(spec, 0, 3, runner=mock_runner)
+        assert len(children) == 1
+        assert isinstance(children[0], dbc.Modal)
+        assert children[0].id != "glm-runtime-modal"
+
+    def test_advance_run_glm_passes_params_override_to_execute_current(self) -> None:
+        """When current block is 'glm', advance_run must build params_override
+        from glm_state and pass it to runner.execute_current."""
+        from nirspy.gui.callbacks.runtime_callbacks import (
+            _INTERACTIVE_RUNNERS,
+            advance_run,
+        )
+
+        # Create a fake runner with glm as the current block
+        mock_spec = MagicMock()
+        mock_spec.block_id = "glm"
+        mock_block = MagicMock()
+        mock_block.spec = mock_spec
+
+        mock_runner = MagicMock()
+        mock_runner.current_block = mock_block
+        mock_runner.is_complete = True  # force finalisation path
+        mock_runner.next_block.return_value = None
+        mock_runner.results = []
+        mock_runner.total_steps = 1
+
+        mock_context = MagicMock()
+        mock_context.extra = {}
+
+        runner_id = str(uuid.uuid4())
+        _INTERACTIVE_RUNNERS[runner_id] = (mock_runner, mock_context)
+
+        exec_state: dict[str, Any] = {
+            "runner_id": runner_id,
+            "current_idx": 0,
+            "status": "running",
+        }
+        glm_state: dict[str, Any] = {
+            "available_conditions": ["stim_A"],
+            "condition_durations": {"stim_A": 4.0},
+            "groups": [],
+        }
+
+        advance_run(1, exec_state, None, glm_state)
+
+        mock_runner.execute_current.assert_called_once()
+        call_args = mock_runner.execute_current.call_args
+        params_override = call_args[0][0] if call_args[0] else call_args.kwargs.get(
+            "params_override"
+        )
+        # params_override should contain condition_durations
+        assert params_override is not None
+        assert "condition_durations" in params_override
+        assert params_override["condition_durations"]["stim_A"] == pytest.approx(4.0)
+
+    def test_advance_run_glm_none_state_passes_none_override(self) -> None:
+        """When glm_state is None, execute_current receives None as params_override."""
+        from nirspy.gui.callbacks.runtime_callbacks import (
+            _INTERACTIVE_RUNNERS,
+            advance_run,
+        )
+
+        mock_spec = MagicMock()
+        mock_spec.block_id = "glm"
+        mock_block = MagicMock()
+        mock_block.spec = mock_spec
+
+        mock_runner = MagicMock()
+        mock_runner.current_block = mock_block
+        mock_runner.is_complete = True
+        mock_runner.next_block.return_value = None
+        mock_runner.results = []
+        mock_runner.total_steps = 1
+
+        mock_context = MagicMock()
+        mock_context.extra = {}
+
+        runner_id = str(uuid.uuid4())
+        _INTERACTIVE_RUNNERS[runner_id] = (mock_runner, mock_context)
+
+        exec_state: dict[str, Any] = {
+            "runner_id": runner_id,
+            "current_idx": 0,
+            "status": "running",
+        }
+
+        advance_run(1, exec_state, None, None)  # glm_state=None
+
+        mock_runner.execute_current.assert_called_once()
+        call_args = mock_runner.execute_current.call_args
+        params_override = call_args[0][0] if call_args[0] else call_args.kwargs.get(
+            "params_override"
+        )
+        assert params_override is None
 
 
 # ---------------------------------------------------------------------------

@@ -126,6 +126,9 @@ class TestRunButton:
     def test_render_has_success_alert(self) -> None:
         assert "run-success" in str(render_run_button())
 
+    def test_render_has_run_status_alert(self) -> None:
+        assert "run-status" in str(render_run_button())
+
 
 class TestProgressTracking:
     def test_build_pipeline_basic(self) -> None:
