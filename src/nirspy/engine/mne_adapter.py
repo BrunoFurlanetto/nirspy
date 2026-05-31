@@ -1109,12 +1109,16 @@ class MNEAdapter:
             events_df = pd.DataFrame(event_rows)
 
             # Build design matrix
+            # oversampling=1: nilearn default (50) creates n_times*50 intermediate
+            # array — extremely slow for fNIRS at 10Hz. At 10Hz the frame_times
+            # already provide sufficient HRF resolution without oversampling.
             design_matrix = make_first_level_design_matrix(
                 frame_times=frame_times,
                 events=events_df,
                 hrf_model=hrf_model,
                 drift_model=drift_model,
                 high_pass=high_pass,
+                oversampling=1,
             )
 
             # Run GLM via mne-nirs
@@ -1146,10 +1150,10 @@ class MNEAdapter:
                     ch_row = reg_df[reg_df["ch_name"] == ch]
                     if len(ch_row) > 0:
                         theta[i, j] = float(ch_row["theta"].iloc[0])
-                        if "t_stat" in ch_row.columns:
-                            t_stats_mat[i, j] = float(
-                                ch_row["t_stat"].iloc[0]
-                            )
+                        for t_col in ("t", "t_stat"):
+                            if t_col in ch_row.columns:
+                                t_stats_mat[i, j] = float(ch_row[t_col].iloc[0])
+                                break
                         if "p_value" in ch_row.columns:
                             p_values_mat[i, j] = float(
                                 ch_row["p_value"].iloc[0]
