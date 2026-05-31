@@ -14,7 +14,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
-import pytest
 from dash import dcc, html
 
 from nirspy.domain.block import BlockResult
@@ -241,7 +240,6 @@ class TestUpdateGlmTopo:
         assert "No GLM results" in str(result)
 
     def test_graph_figure_has_bar_trace(self) -> None:
-        import plotly.graph_objects as go
 
         glm = _make_glm_result()
         results = [_make_block_result(glm)]

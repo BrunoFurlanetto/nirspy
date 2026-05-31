@@ -6,7 +6,7 @@ import mne
 import numpy as np
 import pytest
 
-from nirspy.blocks.glm import GLMBlock, GLMParams, VALID_DRIFT_MODELS
+from nirspy.blocks.glm import GLMBlock, GLMParams
 from nirspy.domain.data_types import DataType
 from nirspy.domain.exceptions import ValidationError
 from nirspy.domain.glm_result import GLMResult
@@ -108,19 +108,27 @@ class TestGLMBlock:
 
     def test_invalid_drift_model(self, raw_haemo_with_events) -> None:
         with pytest.raises(ValidationError, match="drift_model"):
-            GLMBlock(params=GLMParams(drift_model="bad")).run(None, {"upstream": raw_haemo_with_events})
+            GLMBlock(params=GLMParams(drift_model="bad")).run(
+                None, {"upstream": raw_haemo_with_events},
+            )
 
     def test_invalid_hrf_model(self, raw_haemo_with_events) -> None:
         with pytest.raises(ValidationError, match="hrf_model"):
-            GLMBlock(params=GLMParams(hrf_model="bad")).run(None, {"upstream": raw_haemo_with_events})
+            GLMBlock(params=GLMParams(hrf_model="bad")).run(
+                None, {"upstream": raw_haemo_with_events},
+            )
 
     def test_invalid_noise_model(self, raw_haemo_with_events) -> None:
         with pytest.raises(ValidationError, match="noise_model"):
-            GLMBlock(params=GLMParams(noise_model="bad")).run(None, {"upstream": raw_haemo_with_events})
+            GLMBlock(params=GLMParams(noise_model="bad")).run(
+                None, {"upstream": raw_haemo_with_events},
+            )
 
     def test_negative_drift_high_freq(self, raw_haemo_with_events) -> None:
         with pytest.raises(ValidationError, match="drift_high_freq"):
-            GLMBlock(params=GLMParams(drift_high_freq=-0.01)).run(None, {"upstream": raw_haemo_with_events})
+            GLMBlock(params=GLMParams(drift_high_freq=-0.01)).run(
+                None, {"upstream": raw_haemo_with_events},
+            )
 
     def test_custom_params(self, raw_haemo_with_events) -> None:
         p = GLMParams(drift_model="polynomial", hrf_model="spm", noise_model="ols")
@@ -144,7 +152,6 @@ class TestGLMResult:
         assert r.theta.shape == (3, 4)
 
     def test_to_dataframe_pure(self) -> None:
-        import pandas as pd
         r = GLMResult(
             theta=np.arange(6, dtype=float).reshape(2, 3),
             t_stats=np.zeros((2, 3)), p_values=np.zeros((2, 3)),
