@@ -50,6 +50,14 @@ class GLMParams:
         Haemodynamic Response Function model. Default 'glover'.
     noise_model:
         Noise model for GLM estimation. 'ar1' (default) or 'ols'.
+    condition_durations:
+        Optional per-condition stimulus duration in seconds.
+        Keys are condition names (matching annotation descriptions).
+        When None, duration is read from raw annotations; falls back to 1.0 s.
+    per_condition_groups:
+        Optional grouping of conditions for the design matrix.
+        Maps group label -> list of condition names to merge under that label.
+        When None, each condition is modelled independently.
     """
 
     event_id: dict[str, int] | None = field(default=None)
@@ -57,6 +65,8 @@ class GLMParams:
     drift_high_freq: float = 0.01
     hrf_model: str = "glover"
     noise_model: str = "ar1"
+    condition_durations: dict[str, float] | None = field(default=None)
+    per_condition_groups: dict[str, list[str]] | None = field(default=None)
 
 
 _GLM_SPEC = BlockSpec(
@@ -156,6 +166,8 @@ class GLMBlock:
             high_pass=self.params.drift_high_freq,
             hrf_model=self.params.hrf_model,
             noise_model=self.params.noise_model,
+            condition_durations=self.params.condition_durations,
+            per_condition_groups=self.params.per_condition_groups,
         )
 
         metadata: dict[str, Any] = {

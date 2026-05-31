@@ -65,6 +65,42 @@ class RawWrapper:
         return f"RawWrapper(path={self.source_path!r}, n_channels={len(self.raw.ch_names)})"
 
 
+def _get_annotation_duration(
+    raw: mne.io.BaseRaw,
+    cond_name: str,
+    onset_sample: int,
+    sfreq: float,
+) -> float:
+    """Return the stimulus duration for a single event from raw annotations.
+
+    Searches raw.annotations for a matching description + onset and returns
+    the recorded duration. Falls back to 1.0 s when no match is found or
+    when the stored duration is zero.
+
+    Parameters
+    ----------
+    raw:
+        MNE Raw object whose annotations are searched.
+    cond_name:
+        Condition name (annotation description) to match.
+    onset_sample:
+        Sample index of the event onset (relative to first_samp == 0).
+    sfreq:
+        Sampling frequency in Hz.
+
+    Returns
+    -------
+    float
+        Duration in seconds (> 0).
+    """
+    for ann in raw.annotations:
+        if ann["description"] == cond_name:
+            ann_onset_sample = int(ann["onset"] * sfreq)
+            if abs(ann_onset_sample - onset_sample) < 2:  # tolerance 2 samples
+                return float(ann["duration"]) if ann["duration"] > 0 else 1.0
+    return 1.0
+
+
 class MNEAdapter:
     """Facade over MNE / MNE-NIRS I/O and signal-processing operations.
 
@@ -1029,6 +1065,8 @@ class MNEAdapter:
         high_pass: float = 0.01,
         hrf_model: str = "glover",
         noise_model: str = "ar1",
+        condition_durations: dict[str, float] | None = None,
+        per_condition_groups: dict[str, list[str]] | None = None,
     ) -> Any:
         """Run first-level GLM on haemodynamic Raw data.
 
@@ -1050,6 +1088,13 @@ class MNEAdapter:
             HRF model ('glover', 'spm', 'fir', 'glover + derivative', etc.).
         noise_model:
             Noise model for GLM ('ar1' or 'ols').
+        condition_durations:
+            Optional per-condition stimulus duration in seconds.
+            When None, duration is read from raw annotations; falls back to 1.0 s.
+        per_condition_groups:
+            Optional grouping of conditions for the design matrix.
+            Maps group label -> list of condition names to merge under that label.
+            When None, each condition is modelled independently.
 
         Returns
         -------
@@ -1095,10 +1140,17 @@ class MNEAdapter:
                 code = int(event[2])
                 if code in code_to_name:
                     onset_sample = int(event[0]) - first_samp
+                    cond_name = code_to_name[code]
+                    if condition_durations and cond_name in condition_durations:
+                        duration = condition_durations[cond_name]
+                    else:
+                        duration = _get_annotation_duration(
+                            raw, cond_name, onset_sample, sfreq
+                        )
                     event_rows.append({
                         "onset": onset_sample / sfreq,
-                        "duration": 1.0,  # Default 1s duration
-                        "trial_type": code_to_name[code],
+                        "duration": duration,
+                        "trial_type": cond_name,
                     })
 
             if not event_rows:
@@ -1107,6 +1159,16 @@ class MNEAdapter:
                 )
 
             events_df = pd.DataFrame(event_rows)
+
+            # Apply condition grouping: remap trial_type before building design matrix
+            if per_condition_groups:
+                cond_to_group: dict[str, str] = {}
+                for group_label, cond_names in per_condition_groups.items():
+                    for cn in cond_names:
+                        cond_to_group[cn] = group_label
+                events_df["trial_type"] = events_df["trial_type"].map(
+                    lambda x: cond_to_group.get(x, x)
+                )
 
             # Build design matrix
             # oversampling=1: nilearn default (50) creates n_times*50 intermediate
