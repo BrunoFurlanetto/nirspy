@@ -50,7 +50,7 @@ import time
 import uuid
 from typing import Any
 
-from dash import Input, Output, State, callback, no_update
+from dash import Input, Output, State, callback, clientside_callback, no_update
 
 from nirspy.domain.block import BlockSpec
 from nirspy.domain.exceptions import NirspyError
@@ -83,6 +83,23 @@ _IDLE_STATE: dict[str, Any] = {
     "current_idx": -1,
     "status": "idle",
 }
+
+# ---------------------------------------------------------------------------
+# Clientside callback — disable advance button immediately on click
+# ---------------------------------------------------------------------------
+
+clientside_callback(
+    """
+    function(n_clicks) {
+        if (!n_clicks) return [false, window.dash_clientside.no_update];
+        return [true, 'Running…'];
+    }
+    """,
+    Output("runtime-advance-btn", "disabled", allow_duplicate=True),
+    Output("runtime-advance-btn", "children", allow_duplicate=True),
+    Input("runtime-advance-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
 
 
 def _extract_snirf_path(
