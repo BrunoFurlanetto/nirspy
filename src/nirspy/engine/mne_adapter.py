@@ -1183,9 +1183,14 @@ class MNEAdapter:
                 oversampling=1,
             )
 
+            # Exclude bad channels before GLM — mne-nirs does not filter bads
+            # automatically; including them produces spurious coefficients.
+            n_bads = len(raw.info["bads"])
+            raw_clean = raw.copy().pick("all", exclude="bads") if n_bads > 0 else raw
+
             # Run GLM via mne-nirs
             glm_est = _mne_nirs_run_glm(
-                raw,
+                raw_clean,
                 design_matrix,
                 noise_model=noise_model,
             )
@@ -1239,6 +1244,7 @@ class MNEAdapter:
                     "hrf_model": hrf_model,
                     "n_events": len(event_rows),
                     "conditions": list(events_df["trial_type"].unique()),
+                    "n_bad_channels_excluded": n_bads,
                 },
             )
         except MNEOperationError:
