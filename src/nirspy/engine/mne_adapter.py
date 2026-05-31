@@ -1143,6 +1143,14 @@ class MNEAdapter:
                     cond_name = code_to_name[code]
                     if condition_durations and cond_name in condition_durations:
                         duration = condition_durations[cond_name]
+                        if not (
+                            isinstance(duration, (int, float))
+                            and np.isfinite(duration)
+                            and duration > 0
+                        ):
+                            duration = _get_annotation_duration(
+                                raw, cond_name, onset_sample, sfreq
+                            )
                     else:
                         duration = _get_annotation_duration(
                             raw, cond_name, onset_sample, sfreq

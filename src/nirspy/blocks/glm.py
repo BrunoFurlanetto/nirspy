@@ -6,6 +6,7 @@ wrapping mne_nirs.statistics.run_glm via MNEAdapter.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
@@ -147,6 +148,18 @@ class GLMBlock:
                 f"GLMBlock: drift_high_freq must be > 0, "
                 f"got {self.params.drift_high_freq}."
             )
+
+        if self.params.condition_durations is not None:
+            for cond, dur in self.params.condition_durations.items():
+                if not (
+                    isinstance(dur, (int, float))
+                    and math.isfinite(dur)
+                    and dur > 0
+                ):
+                    raise ValidationError(
+                        f"condition_durations[{cond!r}] must be a positive finite number, "
+                        f"got {dur!r}"
+                    )
 
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
 
