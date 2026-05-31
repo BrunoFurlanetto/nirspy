@@ -328,6 +328,70 @@ class TestBuildGlmParamsOverride:
         }
         assert build_glm_params_override(state) is None
 
+    # --- Regression tests: extreme condition_duration values (T-040 security fix) ---
+
+    def test_inf_duration_discarded(self) -> None:
+        """build_glm_params_override must silently drop inf durations."""
+        from nirspy.gui.components.glm_runtime_dialog import build_glm_params_override
+
+        state: dict[str, Any] = {
+            "available_conditions": ["A"],
+            "condition_durations": {"A": float("inf")},
+            "groups": [],
+        }
+        result = build_glm_params_override(state)
+        # The key must be absent or the whole override is None
+        assert result is None or "A" not in result.get("condition_durations", {})
+
+    def test_nan_duration_discarded(self) -> None:
+        """build_glm_params_override must silently drop nan durations."""
+        from nirspy.gui.components.glm_runtime_dialog import build_glm_params_override
+
+        state: dict[str, Any] = {
+            "available_conditions": ["A"],
+            "condition_durations": {"A": float("nan")},
+            "groups": [],
+        }
+        result = build_glm_params_override(state)
+        assert result is None or "A" not in result.get("condition_durations", {})
+
+    def test_negative_duration_discarded(self) -> None:
+        """build_glm_params_override must silently drop negative durations."""
+        from nirspy.gui.components.glm_runtime_dialog import build_glm_params_override
+
+        state: dict[str, Any] = {
+            "available_conditions": ["A"],
+            "condition_durations": {"A": -5.0},
+            "groups": [],
+        }
+        result = build_glm_params_override(state)
+        assert result is None or "A" not in result.get("condition_durations", {})
+
+    def test_zero_duration_discarded(self) -> None:
+        """build_glm_params_override must silently drop zero durations."""
+        from nirspy.gui.components.glm_runtime_dialog import build_glm_params_override
+
+        state: dict[str, Any] = {
+            "available_conditions": ["A"],
+            "condition_durations": {"A": 0.0},
+            "groups": [],
+        }
+        result = build_glm_params_override(state)
+        assert result is None or "A" not in result.get("condition_durations", {})
+
+    def test_very_large_finite_duration_accepted(self) -> None:
+        """build_glm_params_override must accept very large but finite positive values."""
+        from nirspy.gui.components.glm_runtime_dialog import build_glm_params_override
+
+        state: dict[str, Any] = {
+            "available_conditions": ["A"],
+            "condition_durations": {"A": 1e15},
+            "groups": [],
+        }
+        result = build_glm_params_override(state)
+        assert result is not None
+        assert result["condition_durations"]["A"] == pytest.approx(1e15)
+
     def test_mixed_valid_invalid_groups_only_valid_included(self) -> None:
         from nirspy.gui.components.glm_runtime_dialog import build_glm_params_override
 

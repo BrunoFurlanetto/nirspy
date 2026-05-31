@@ -278,6 +278,83 @@ class TestGLMParamsT040:
         assert result.block_id == "glm"
 
 
+# ---------------------------------------------------------------------------
+# T-040 security fix — regression tests for extreme condition_duration values
+# ---------------------------------------------------------------------------
+
+
+class TestGLMParamsValidation:
+    """Regression tests: GLMBlock.run must raise ValidationError for invalid condition_durations."""
+
+    def _make_raw(self) -> mne.io.BaseRaw:
+        import mne
+        import numpy as np
+
+        sfreq = 10.0
+        n_times = int(60 * sfreq)
+        ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        ch_types = ["hbo", "hbr"]
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+        for ch in info["chs"]:
+            ch["loc"][3:6] = np.array([0.0, 0.0, 0.0])
+            ch["loc"][6:9] = np.array([0.03, 0.0, 0.0])
+        data = np.zeros((2, n_times))
+        raw = mne.io.RawArray(data, info, verbose=False)
+        ann = mne.Annotations(onset=[5.0], duration=[1.0], description=["stim"])
+        raw.set_annotations(ann)
+        return raw
+
+    def test_inf_duration_raises(self) -> None:
+        """condition_durations with inf must raise ValidationError."""
+        raw = self._make_raw()
+        params = GLMParams(condition_durations={"stim": float("inf")})
+        with pytest.raises(ValidationError, match="condition_durations"):
+            GLMBlock(params=params).run(None, {"upstream": raw})
+
+    def test_nan_duration_raises(self) -> None:
+        """condition_durations with nan must raise ValidationError."""
+        raw = self._make_raw()
+        params = GLMParams(condition_durations={"stim": float("nan")})
+        with pytest.raises(ValidationError, match="condition_durations"):
+            GLMBlock(params=params).run(None, {"upstream": raw})
+
+    def test_negative_duration_raises(self) -> None:
+        """condition_durations with a negative value must raise ValidationError."""
+        raw = self._make_raw()
+        params = GLMParams(condition_durations={"stim": -1.0})
+        with pytest.raises(ValidationError, match="condition_durations"):
+            GLMBlock(params=params).run(None, {"upstream": raw})
+
+    def test_zero_duration_raises(self) -> None:
+        """condition_durations with zero must raise ValidationError."""
+        raw = self._make_raw()
+        params = GLMParams(condition_durations={"stim": 0.0})
+        with pytest.raises(ValidationError, match="condition_durations"):
+            GLMBlock(params=params).run(None, {"upstream": raw})
+
+    def test_valid_duration_does_not_raise(self) -> None:
+        """condition_durations with a valid positive finite value must not raise."""
+        from unittest.mock import MagicMock
+
+        raw = self._make_raw()
+        stub = GLMResult(
+            theta=np.zeros((1, 2)),
+            t_stats=np.zeros((1, 2)),
+            p_values=np.zeros((1, 2)),
+            mse=np.ones(2),
+            channel_names=["S1_D1 hbo", "S1_D1 hbr"],
+            regressor_names=["stim"],
+            design_matrix=np.zeros((600, 1)),
+            metadata={"conditions": ["stim"]},
+        )
+        mock_adapter = MagicMock()
+        mock_adapter.run_glm.return_value = stub
+
+        params = GLMParams(condition_durations={"stim": 30.0})
+        result = GLMBlock(params=params, adapter=mock_adapter).run(None, {"upstream": raw})
+        assert result.block_id == "glm"
+
+
 class TestDataTypeGLMResult:
     def test_enum_value(self) -> None:
         assert DataType.GLM_RESULT == "glm_result"
