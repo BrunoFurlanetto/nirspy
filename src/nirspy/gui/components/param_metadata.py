@@ -205,6 +205,59 @@ _PARAM_META_REGISTRY: dict[tuple[str, str], ParamMeta] = {
             "Flagged channels are excluded from downstream analysis."
         ),
     ),
+    # -- EpochsExtraction ----------------------------------------------------
+    ("epochs_extraction", "tmin"): ParamMeta(
+        label="Epoch start",
+        unit="s",
+        description=(
+            "Epoch start relative to event onset. "
+            "Typical short tasks: -0.5 to -2 s pre-stimulus."
+        ),
+        min=-30,
+        max=0,
+        step=0.5,
+    ),
+    ("epochs_extraction", "tmax"): ParamMeta(
+        label="Epoch end",
+        unit="s",
+        description=(
+            "Epoch end relative to event onset. "
+            "Typical short tasks: 5 to 20 s post-stimulus."
+        ),
+        min=0.5,
+        max=60,
+        step=0.5,
+    ),
+    ("epochs_extraction", "baseline_tmin"): ParamMeta(
+        label="Baseline start",
+        unit="s",
+        description=(
+            "Start of the baseline correction window. "
+            "None uses the epoch tmin as baseline start."
+        ),
+        min=-30,
+        max=0,
+        step=0.1,
+    ),
+    ("epochs_extraction", "baseline_tmax"): ParamMeta(
+        label="Baseline end",
+        unit="s",
+        description="End of the baseline correction window. Usually 0 s (onset).",
+        min=-30,
+        max=0,
+        step=0.1,
+    ),
+    ("epochs_extraction", "reject_amplitude"): ParamMeta(
+        label="Amplitude rejection",
+        unit="mol/L",
+        description=(
+            "Epochs exceeding this peak-to-peak amplitude threshold are rejected. "
+            "None disables amplitude-based rejection."
+        ),
+        min=0.0,
+        max=1e-4,
+        step=1e-6,
+    ),
 }
 
 

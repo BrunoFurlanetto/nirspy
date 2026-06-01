@@ -226,12 +226,14 @@ def render_params(
     block_cls = registry.get(block_id)
     spec: BlockSpec = block_cls.SPEC  # type: ignore[attr-defined]
 
-    # For block_average, harvest available condition names + SNIRF path from
-    # any LoadSnirf step in the pipeline so the editor dropdown and timeline
-    # (T-030) are pre-populated without requiring a pipeline run first.
+    # For blocks with per-condition widget (block_average, epochs_extraction),
+    # harvest available condition names + SNIRF path from any LoadSnirf step in
+    # the pipeline so the editor dropdown and timeline (T-030) are pre-populated
+    # without requiring a pipeline run first.
+    _BLOCKS_WITH_CONDITION_WIDGET = ("block_average", "epochs_extraction")
     available_conditions: list[str] | None = None
     snirf_path: str | None = None
-    if block_id == "block_average":
+    if block_id in _BLOCKS_WITH_CONDITION_WIDGET:
         from nirspy.gui.components.condition_windows_editor import (
             read_snirf_condition_names,
         )

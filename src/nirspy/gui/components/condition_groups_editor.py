@@ -116,9 +116,18 @@ def _time_defaults(params_snapshot: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def _numeric_attrs_for(field_name: str) -> dict[str, Any]:
-    """Return HTML5 min/max/step attrs from ParamMeta for ``block_average``."""
-    meta = metadata_for("block_average", field_name)
+def _numeric_attrs_for(field_name: str, block_id: str = "block_average") -> dict[str, Any]:
+    """Return HTML5 min/max/step attrs from ParamMeta for a given block.
+
+    Parameters
+    ----------
+    field_name:
+        The dataclass field name (e.g. ``"tmin"``).
+    block_id:
+        Registry ID of the owning block.  Defaults to ``"block_average"``
+        for backward compatibility.
+    """
+    meta = metadata_for(block_id, field_name)
     attrs: dict[str, Any] = {}
     if meta is None:
         return attrs
@@ -140,6 +149,7 @@ def _render_group_card(
     time_vals: dict[str, float],
     available_conditions: list[str] | None,
     duplicated_conditions: set[str],
+    block_id: str = "block_average",
 ) -> dbc.Card:
     """Render a single condition-group card."""
     options = (
@@ -161,7 +171,7 @@ def _render_group_card(
     ]
     time_inputs = []
     for field_name, label_short in time_fields:
-        attrs = _numeric_attrs_for(field_name)
+        attrs = _numeric_attrs_for(field_name, block_id=block_id)
         if "step" not in attrs:
             attrs["step"] = 0.1
         time_inputs.append(
@@ -312,6 +322,7 @@ def render_condition_groups_editor(
     available_conditions: list[str] | None = None,
     snirf_path: str | None = None,
     active_group_label: str | None = None,
+    block_id: str = "block_average",
 ) -> html.Div:
     """Render the static condition-groups editor for the builder.
 
@@ -334,6 +345,11 @@ def render_condition_groups_editor(
     active_group_label:
         Currently active group for click-to-toggle on the timeline.
         ``None`` disables toggle.
+    block_id:
+        Registry ID of the owning block.  Determines which ParamMeta
+        entries are used for min/max/step on numeric inputs inside each
+        group card.  Defaults to ``"block_average"`` for backward
+        compatibility.
 
     Returns
     -------
@@ -403,6 +419,7 @@ def render_condition_groups_editor(
                 },
                 available_conditions=available_conditions,
                 duplicated_conditions=duplicated,
+                block_id=block_id,
             )
         )
 

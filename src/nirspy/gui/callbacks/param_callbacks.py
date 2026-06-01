@@ -311,8 +311,10 @@ def toggle_hrf_mode(
     """Switch between per-condition-windows and per-condition-groups modes.
 
     When switching to "groups": clears per_condition_windows so the mutual
-    exclusion invariant in BlockAverageParams.__post_init__ is satisfied.
-    When switching to "windows": clears per_condition_groups.
+    exclusion invariant is satisfied.
+    When switching to "windows": clears the groups field (either
+    ``per_condition_groups`` for block_average or ``groups`` for
+    epochs_extraction).
     """
     if not ctx.triggered_id:
         return no_update
@@ -326,10 +328,15 @@ def toggle_hrf_mode(
             continue
         params = dict(entry.get("params", {}))
         params["_hrf_mode"] = new_mode
+        block_id: str = entry.get("block_id", "")
         if new_mode == "groups":
             params["per_condition_windows"] = {}
         else:
-            params["per_condition_groups"] = {}
+            # epochs_extraction uses "groups"; block_average uses "per_condition_groups"
+            if block_id == "epochs_extraction":
+                params["groups"] = None
+            else:
+                params["per_condition_groups"] = {}
         entry["params"] = params
         break
 
