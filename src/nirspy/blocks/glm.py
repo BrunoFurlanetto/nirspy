@@ -124,6 +124,46 @@ class GLMBlock:
                 "It cannot be the first block in a pipeline."
             )
 
+        # ---- GlobalConditions no-op (T-042) ----
+        from nirspy.domain.conditions import resolve_conditions
+
+        resolved = resolve_conditions(
+            context.extra if hasattr(context, "extra") else {},
+            {
+                "condition_durations": getattr(
+                    self.params, "condition_durations", None
+                ),
+                "per_condition_groups": getattr(
+                    self.params, "per_condition_groups", None
+                ),
+            },
+        )
+
+        # Effective local params (may be overridden by GlobalConditions)
+        eff_condition_durations: dict[str, float] | None = self.params.condition_durations
+        eff_per_condition_groups: dict[str, list[str]] | None = self.params.per_condition_groups
+        eff_event_id: dict[str, int] | None = self.params.event_id
+
+        if resolved is not None:
+            # Build condition_durations from ConditionConfig.duration
+            eff_condition_durations = {
+                name: cfg.duration
+                for name, cfg in resolved.condition_configs.items()
+            }
+
+            # Build per_condition_groups from resolved.groups if present
+            if resolved.groups:
+                eff_per_condition_groups = {
+                    grp.label: list(grp.conditions)
+                    for grp in resolved.groups
+                }
+            else:
+                eff_per_condition_groups = None
+
+            # event_id is not altered — GLM relies on annotation descriptions
+            # and condition_durations handles duration overrides.
+            # included_occurrences selection is not supported at GLM level.
+
         # Validate params
         if self.params.drift_model not in VALID_DRIFT_MODELS:
             raise ValidationError(
@@ -149,8 +189,8 @@ class GLMBlock:
                 f"got {self.params.drift_high_freq}."
             )
 
-        if self.params.condition_durations is not None:
-            for cond, dur in self.params.condition_durations.items():
+        if eff_condition_durations is not None:
+            for cond, dur in eff_condition_durations.items():
                 if not (
                     isinstance(dur, (int, float))
                     and math.isfinite(dur)
@@ -174,13 +214,13 @@ class GLMBlock:
 
         glm_result = self._adapter.run_glm(
             raw,
-            event_id=self.params.event_id,
+            event_id=eff_event_id,
             drift_model=self.params.drift_model,
             high_pass=self.params.drift_high_freq,
             hrf_model=self.params.hrf_model,
             noise_model=self.params.noise_model,
-            condition_durations=self.params.condition_durations,
-            per_condition_groups=self.params.per_condition_groups,
+            condition_durations=eff_condition_durations,
+            per_condition_groups=eff_per_condition_groups,
         )
 
         metadata: dict[str, Any] = {
