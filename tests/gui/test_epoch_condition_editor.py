@@ -619,7 +619,7 @@ class TestCA8RenderParamsHarvestsConditions:
             read_mock,
         ):
             rpe_mock.return_value = MagicMock()
-            mod.render_params(instance_id, pipeline_state)
+            mod.render_params(instance_id, pipeline_state, None)
 
         # render_param_editor must have been called with available_conditions
         call_kwargs = rpe_mock.call_args

@@ -342,12 +342,16 @@ def render_pipeline(
     Output("param-editor", "children"),
     Input("selected-block", "data"),
     Input("pipeline-state", "data"),
+    Input("global-conditions-store", "data"),
 )
 def render_params(
     selected: str | None,
     pipeline_state: list[dict[str, Any]] | None,
+    global_conditions: dict[str, Any] | None,
 ) -> Any:
     """Re-render the parameter editor when the selection or state changes."""
+    gc_active: bool = bool(global_conditions)
+
     if not selected or not pipeline_state:
         return render_param_editor(
             block_id=None,
@@ -398,4 +402,35 @@ def render_params(
         current_values=entry.get("params", {}),
         available_conditions=available_conditions,
         snirf_path=snirf_path,
+        global_conditions_active=gc_active,
     )
+
+
+@callback(
+    Output("condition-config-modal", "is_open", allow_duplicate=True),
+    Output("condition-config-state", "data", allow_duplicate=True),
+    Input("btn-edit-conditions", "n_clicks"),
+    State("condition-config-state", "data"),
+    State("global-conditions-store", "data"),
+    prevent_initial_call=True,
+)
+def open_condition_modal_from_button(
+    n_clicks: int | None,
+    state: dict[str, Any] | None,
+    global_conditions: dict[str, Any] | None,
+) -> tuple[Any, Any]:
+    """Re-open the condition config modal when the Edit Conditions button is clicked."""
+    if not n_clicks or not global_conditions:
+        return no_update, no_update
+    new_state: dict[str, Any] = dict(state) if state else {}
+    new_state["_open"] = True
+    return no_update, new_state
+
+
+@callback(
+    Output("btn-edit-conditions", "disabled"),
+    Input("global-conditions-store", "data"),
+)
+def toggle_edit_conditions_btn(global_conditions: dict[str, Any] | None) -> bool:
+    """Disable the Edit Conditions button when no global conditions are loaded."""
+    return not bool(global_conditions)
