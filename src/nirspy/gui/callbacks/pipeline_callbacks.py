@@ -30,11 +30,13 @@ from nirspy.gui.components.pipeline_view import render_pipeline_view
     Output("condition-config-warning", "style", allow_duplicate=True),
     Input("condition-config-apply-btn", "n_clicks"),
     State("condition-config-state", "data"),
+    State({"type": "cond-cfg-duration", "cond_idx": ALL}, "value"),
     prevent_initial_call=True,
 )
 def apply_condition_config(
     n_clicks: int | None,
     state: dict[str, Any] | None,
+    dom_durations: list[float | None],
 ) -> tuple[Any, Any, Any, Any]:
     """Build GlobalConditions from modal state and persist to store.
 
@@ -69,7 +71,16 @@ def apply_condition_config(
             tuple(selected_occs) if len(selected_occs) < len(occs) else None
         )
         try:
-            dur = float(cond.get("duration", 1.0))
+            # Use DOM value directly (more reliable than state for number inputs)
+            _cond_idx = len(condition_configs)
+            dom_dur = dom_durations[_cond_idx] if _cond_idx < len(dom_durations) else None
+            if dom_dur is not None:
+                try:
+                    dur = float(dom_dur)
+                except (TypeError, ValueError):
+                    dur = float(cond.get("duration", 1.0))
+            else:
+                dur = float(cond.get("duration", 1.0))
             tmin = float(cond.get("tmin", -2.0))
             tmax = float(cond.get("tmax", 18.0))
             btmin = float(cond.get("baseline_tmin", -2.0))
