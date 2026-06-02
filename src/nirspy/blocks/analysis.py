@@ -356,6 +356,16 @@ class BlockAverageBlock:
 
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
 
+        # Apply GlobalConditions annotation filter (T-042) -- MUST happen before
+        # events_from_annotations so that renamed labels (name vs original_name)
+        # and excluded occurrences are visible to epoch creation.
+        if resolved is not None:
+            from nirspy.domain.conditions import GlobalConditions as _GC
+            from nirspy.engine.mne_adapter import MNEAdapter as _Adapter
+
+            gc: _GC = context.extra["global_conditions"]
+            raw = _Adapter.filter_annotations_by_conditions(raw, gc)
+
         # Validate channel type
         ch_types = set(raw.get_channel_types())
         if "hbo" not in ch_types and "hbr" not in ch_types:

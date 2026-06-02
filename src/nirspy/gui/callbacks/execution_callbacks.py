@@ -150,12 +150,14 @@ def _build_pipeline_from_state(
     Input("run-button", "n_clicks"),
     State("pipeline-state", "data"),
     State("input-file-path", "data"),
+    State("global-conditions-store", "data"),
     prevent_initial_call=True,
 )
 def run_pipeline_callback(
     n_clicks: int | None,
     pipeline_state: list[dict[str, Any]] | None,
     input_file_path: str | None,
+    global_conditions_store_data: dict[str, Any] | None,
 ) -> tuple[Any, ...]:
     """Execute the pipeline and store results for visualization.
 
@@ -184,7 +186,13 @@ def run_pipeline_callback(
     # Build pipeline
     try:
         pipeline = _build_pipeline_from_state(pipeline_state)
-    except (KeyError, NirspyError) as exc:
+        if global_conditions_store_data:
+            from nirspy.domain.conditions import global_conditions_from_dict
+
+            pipeline.global_conditions = global_conditions_from_dict(
+                global_conditions_store_data
+            )
+    except (KeyError, ValueError, NirspyError) as exc:
         logger.exception("Failed to build pipeline")
         block_id = _extract_block_id(pipeline_state, exc)
         if isinstance(exc, NirspyError):

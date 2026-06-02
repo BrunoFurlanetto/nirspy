@@ -35,6 +35,16 @@ from dash import ALL, Input, Output, State, callback, dcc, html, no_update
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_float(value: float | None, default: float) -> float:
+    """Return float(value) when value is not None, else default.
+
+    Avoids the ``value or default`` pattern which treats ``0.0`` as falsy,
+    incorrectly substituting the default when the user explicitly enters zero.
+    """
+    return float(value) if value is not None else default
+
+
 # ---------------------------------------------------------------------------
 # Helper: build conditions structure from raw annotations
 # ---------------------------------------------------------------------------
@@ -833,17 +843,17 @@ def _sync_group_inputs(
                 "conditions": list(
                     (conditions[i] if i < len(conditions) else None) or []
                 ),
-                "tmin": float(
-                    (tmins[i] if i < len(tmins) else None) or -2.0
+                "tmin": _coerce_float(
+                    tmins[i] if i < len(tmins) else None, -2.0
                 ),
-                "tmax": float(
-                    (tmaxs[i] if i < len(tmaxs) else None) or 18.0
+                "tmax": _coerce_float(
+                    tmaxs[i] if i < len(tmaxs) else None, 18.0
                 ),
-                "baseline_tmin": float(
-                    (btmins[i] if i < len(btmins) else None) or -2.0
+                "baseline_tmin": _coerce_float(
+                    btmins[i] if i < len(btmins) else None, -2.0
                 ),
-                "baseline_tmax": float(
-                    (btmaxs[i] if i < len(btmaxs) else None) or 0.0
+                "baseline_tmax": _coerce_float(
+                    btmaxs[i] if i < len(btmaxs) else None, 0.0
                 ),
             }
         )

@@ -94,7 +94,7 @@ class TestExecutionErrorWiring:
     def test_invalid_block_returns_alert(self) -> None:
         from nirspy.gui.callbacks.execution_callbacks import run_pipeline_callback
         state = [_make_entry("nonexistent_block")]
-        result = run_pipeline_callback(1, state, None)
+        result = run_pipeline_callback(1, state, None, None)
         assert isinstance(result[4], dbc.Alert)
         assert "Failed to build pipeline" in str(result[4])
 
