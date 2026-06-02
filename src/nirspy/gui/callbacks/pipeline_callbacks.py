@@ -419,10 +419,41 @@ def open_condition_modal_from_button(
     state: dict[str, Any] | None,
     global_conditions: dict[str, Any] | None,
 ) -> tuple[Any, Any]:
-    """Re-open the condition config modal when the Edit Conditions button is clicked."""
+    """Re-open the condition config modal, restoring last-applied values."""
     if not n_clicks or not global_conditions:
         return no_update, no_update
+
     new_state: dict[str, Any] = dict(state) if state else {}
+
+    # Rebuild editable fields from global-conditions-store (last Apply values)
+    gc_conditions: list[dict[str, Any]] = global_conditions.get("conditions") or []
+    gc_by_orig: dict[str, dict[str, Any]] = {
+        c["original_name"]: c for c in gc_conditions
+    }
+
+    restored: list[dict[str, Any]] = []
+    for cond in new_state.get("conditions", []):
+        orig = cond.get("original_name", "")
+        gc = gc_by_orig.get(orig)
+        if gc:
+            restored.append({
+                **cond,
+                "name": gc["name"],
+                "duration": gc["duration"],
+                "tmin": gc["tmin"],
+                "tmax": gc["tmax"],
+                "baseline_tmin": gc["baseline_tmin"],
+                "baseline_tmax": gc["baseline_tmax"],
+            })
+        else:
+            restored.append(cond)
+    new_state["conditions"] = restored
+
+    # Restore groups from store
+    gc_groups = global_conditions.get("groups")
+    if gc_groups is not None:
+        new_state["groups"] = gc_groups
+
     new_state["_open"] = True
     return no_update, new_state
 
