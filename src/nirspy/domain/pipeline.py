@@ -6,6 +6,11 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from nirspy.domain.block import Block
+from nirspy.domain.conditions import (
+    GlobalConditions,
+    global_conditions_from_dict,
+    global_conditions_to_dict,
+)
 from nirspy.domain.exceptions import ValidationError
 from nirspy.domain.validation import validate_io_chain
 
@@ -74,6 +79,7 @@ class Pipeline:
     steps: list[Block] = field(default_factory=list)
     params: dict[str, Any] = field(default_factory=dict)
     description: str = ""
+    global_conditions: GlobalConditions | None = None
 
     # ------------------------------------------------------------------
     # Serialisation
@@ -86,7 +92,7 @@ class Pipeline:
         the IO serialiser calls this method — the serialiser is responsible for
         that conversion. Here we only store ``block_id`` references.
         """
-        return {
+        d: dict[str, Any] = {
             "schema_version": _CURRENT_SCHEMA_VERSION,
             "name": self.name,
             "description": self.description,
@@ -102,6 +108,9 @@ class Pipeline:
                 for block_id, params_value in self.params.items()
             },
         }
+        if self.global_conditions is not None:
+            d["global_conditions"] = global_conditions_to_dict(self.global_conditions)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], registry: RegistryProtocol) -> Pipeline:
@@ -151,11 +160,15 @@ class Pipeline:
 
         params: dict[str, Any] = data.get("params", {})
 
+        gc_data = data.get("global_conditions")
+        global_conditions = global_conditions_from_dict(gc_data) if gc_data else None
+
         pipeline = cls(
             name=data.get("name", ""),
             description=data.get("description", ""),
             steps=steps,
             params=params,
+            global_conditions=global_conditions,
         )
 
         validate_io_chain(pipeline.steps)

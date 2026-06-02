@@ -97,6 +97,8 @@ class PipelineRunner:
         self._prev_result = None
         self._started = True
         self._block_ready = False
+        if self._pipeline.global_conditions is not None:
+            self._context.extra["global_conditions"] = self._pipeline.global_conditions
 
     def next_block(self) -> BlockSpec | None:
         """Advance to the next block and return its spec.
