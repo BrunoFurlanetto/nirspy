@@ -219,6 +219,96 @@ class TestPipelineFromDict:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# GlobalConditions in Pipeline (T-042)
+# ---------------------------------------------------------------------------
+
+
+class TestPipelineGlobalConditions:
+    """Tests for Pipeline.global_conditions field (T-042)."""
+
+    def _make_gc(self) -> Any:
+        from nirspy.domain.conditions import ConditionConfig, GlobalConditions
+
+        return GlobalConditions(
+            conditions=(
+                ConditionConfig(
+                    name="Cognitive",
+                    original_name="1.0",
+                    duration=20.0,
+                    tmin=-2.0,
+                    tmax=22.0,
+                    baseline_tmin=-2.0,
+                    baseline_tmax=0.0,
+                ),
+                ConditionConfig(
+                    name="Motor",
+                    original_name="2.0",
+                    included_occurrences=(0, 1),
+                    duration=15.0,
+                    tmin=-1.0,
+                    tmax=20.0,
+                    baseline_tmin=-1.0,
+                    baseline_tmax=0.0,
+                ),
+            )
+        )
+
+    def test_pipeline_global_conditions_round_trip(self) -> None:
+        """Pipeline with global_conditions → to_dict() → from_dict() preserves all fields."""
+        gc = self._make_gc()
+        p_orig = Pipeline(name="gc_pipe", global_conditions=gc)
+        d = p_orig.to_dict()
+        assert "global_conditions" in d
+
+        p_loaded = Pipeline.from_dict(d, FakeRegistry({}))
+
+        assert p_loaded.global_conditions is not None
+        assert len(p_loaded.global_conditions.conditions) == 2
+        cog = p_loaded.global_conditions.conditions[0]
+        assert cog.name == "Cognitive"
+        assert cog.original_name == "1.0"
+        assert cog.duration == 20.0
+        assert cog.tmin == -2.0
+        assert cog.tmax == 22.0
+        motor = p_loaded.global_conditions.conditions[1]
+        assert motor.included_occurrences == (0, 1)
+        assert motor.duration == 15.0
+
+    def test_pipeline_without_global_conditions(self) -> None:
+        """Pipeline without global_conditions field → attribute is None after from_dict."""
+        p_orig = Pipeline(name="no_gc")
+        d = p_orig.to_dict()
+        assert "global_conditions" not in d
+
+        p_loaded = Pipeline.from_dict(d, FakeRegistry({}))
+        assert p_loaded.global_conditions is None
+
+    def test_pipeline_legacy_yaml_compat(self) -> None:
+        """Pipeline dict without global_conditions key deserialises without error."""
+        from nirspy.domain.pipeline import _CURRENT_SCHEMA_VERSION
+
+        data: dict[str, Any] = {
+            "schema_version": _CURRENT_SCHEMA_VERSION,
+            "name": "legacy",
+            "description": "",
+            "steps": [],
+            "params": {},
+            # no "global_conditions" key at all
+        }
+        p = Pipeline.from_dict(data, FakeRegistry({}))
+        assert p.global_conditions is None
+
+    def test_pipeline_gc_to_dict_round_trip_stable(self) -> None:
+        """to_dict → from_dict → to_dict produces identical dicts when gc present."""
+        gc = self._make_gc()
+        p = Pipeline(name="stable_gc", global_conditions=gc)
+        d1 = p.to_dict()
+        p2 = Pipeline.from_dict(d1, FakeRegistry({}))
+        d2 = p2.to_dict()
+        assert d1 == d2
+
+
 class TestPipelineRoundTrip:
     """to_dict → from_dict → to_dict must produce identical dicts."""
 

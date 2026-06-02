@@ -350,3 +350,87 @@ class TestPerConditionWindows:
         ws = result.metadata["windows_used"]
         assert ws["Tapping"]["tmin"] == -3.0
         assert ws["Tapping"]["tmax"] == 18.0
+
+
+# ---------------------------------------------------------------------------
+# GlobalConditions override in BlockAverageBlock (T-042)
+# ---------------------------------------------------------------------------
+
+
+class TestBlockAverageGlobalConditions:
+    """Tests: global_conditions in context.extra overrides local params."""
+
+    @pytest.fixture()
+    def raw_tapping_rest(self) -> mne.io.BaseRaw:
+        """Raw with 'Tapping' and 'Rest' annotations."""
+        sfreq = 10.0
+        n_times = int(60 * sfreq)
+        ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        ch_types = ["hbo", "hbr"]
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+        for ch in info["chs"]:
+            ch["loc"][3:6] = [0.0, 0.0, 0.0]
+            ch["loc"][6:9] = [0.03, 0.0, 0.0]
+        rng = np.random.default_rng(7)
+        data = rng.normal(0, 1e-6, (2, n_times))
+        raw = mne.io.RawArray(data, info, verbose=False)
+        raw.set_annotations(mne.Annotations(
+            onset=[5.0, 15.0, 25.0, 10.0, 20.0, 30.0],
+            duration=[0.0] * 6,
+            description=["Tapping", "Tapping", "Tapping", "Rest", "Rest", "Rest"],
+        ))
+        return raw
+
+    def test_block_average_uses_global_when_present(
+        self, raw_tapping_rest: mne.io.BaseRaw
+    ) -> None:
+        """When global_conditions in context.extra, local pick_conditions is ignored."""
+        from nirspy.domain.conditions import ConditionConfig, GlobalConditions
+        from nirspy.domain.execution import ExecutionContext
+
+        gc = GlobalConditions(
+            conditions=(
+                ConditionConfig(
+                    name="Tapping",
+                    original_name="Tapping",
+                    duration=1.0,
+                    tmin=-2.0,
+                    tmax=10.0,
+                    baseline_tmin=-2.0,
+                    baseline_tmax=0.0,
+                ),
+            )
+        )
+        ctx = ExecutionContext(extra={"global_conditions": gc})
+
+        # Local params ask for ["Rest"] — global should override this
+        params = BlockAverageParams(
+            pick_conditions=["Rest"],
+            tmin=-2.0,
+            tmax=10.0,
+        )
+        block = BlockAverageBlock(params=params)
+        result = block.run(ctx, {"input": raw_tapping_rest})
+
+        # Global says only "Tapping" — "Rest" must not be in result
+        assert "Tapping" in result.data
+        assert "Rest" not in result.data
+
+    def test_block_average_uses_local_when_global_absent(
+        self, raw_tapping_rest: mne.io.BaseRaw
+    ) -> None:
+        """Without global_conditions in context.extra, local params take effect."""
+        from nirspy.domain.execution import ExecutionContext
+
+        ctx = ExecutionContext(extra={})
+
+        params = BlockAverageParams(
+            pick_conditions=["Rest"],
+            tmin=-2.0,
+            tmax=10.0,
+        )
+        block = BlockAverageBlock(params=params)
+        result = block.run(ctx, {"input": raw_tapping_rest})
+
+        assert "Rest" in result.data
+        assert "Tapping" not in result.data
