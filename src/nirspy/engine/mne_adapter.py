@@ -675,6 +675,37 @@ class MNEAdapter:
                     bl_tmin, bl_tmax = w.baseline_tmin, w.baseline_tmax
                 else:
                     tmin, tmax, bl_tmin, bl_tmax = default_window
+
+                # Clamp tmin/tmax to recording bounds to avoid TOO_SHORT drops.
+                recording_end = raw.times[-1]
+                sfreq = raw.info["sfreq"]
+                effective_tmax = tmax
+                effective_tmin = tmin
+                for ev in cond_events:
+                    onset_time = ev[0] / sfreq
+                    avail_tmax = recording_end - onset_time
+                    avail_tmin = -onset_time
+                    if effective_tmax > avail_tmax:
+                        effective_tmax = min(effective_tmax, avail_tmax)
+                    if effective_tmin < avail_tmin:
+                        effective_tmin = max(effective_tmin, avail_tmin)
+
+                if effective_tmax < tmax:
+                    logger.warning(
+                        "BlockAverage: condition %r tmax=%.2fs would exceed "
+                        "recording end (%.2fs). Clamping tmax to %.2fs.",
+                        cond, tmax, recording_end, effective_tmax,
+                    )
+                    tmax = effective_tmax
+
+                if effective_tmin > tmin:
+                    logger.warning(
+                        "BlockAverage: condition %r tmin=%.2fs would precede "
+                        "recording start. Clamping tmin to %.2fs.",
+                        cond, tmin, effective_tmin,
+                    )
+                    tmin = effective_tmin
+
                 epochs = mne.Epochs(
                     raw,
                     cond_events,
