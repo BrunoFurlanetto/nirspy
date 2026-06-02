@@ -643,7 +643,7 @@ def render_condition_config_modal() -> dbc.Modal:
 )
 def _populate_modal(
     state: dict[str, Any] | None,
-) -> tuple[Any, Any, bool, Any]:
+) -> tuple[Any, Any, Any, Any]:
     """Re-render the modal content when condition-config-state changes externally.
 
     This callback is triggered when the state store is written from outside
