@@ -18,6 +18,7 @@ from dash import dcc, html
 
 from nirspy.blocks import registry
 from nirspy.gui.components.block_catalog import render_block_catalog
+from nirspy.gui.components.condition_config_modal import render_condition_config_modal
 from nirspy.gui.components.condition_selector import render_condition_selector
 from nirspy.gui.components.converter_view import render_converter_tab
 from nirspy.gui.components.run_button import render_run_button
@@ -115,6 +116,15 @@ def create_layout() -> dbc.Container:
             ),
             html.Hr(),
             render_run_button(),
+            dbc.Button(
+                "Edit Conditions",
+                id="btn-edit-conditions",
+                color="warning",
+                outline=True,
+                size="sm",
+                disabled=True,
+                className="mt-2",
+            ),
         ],
         width=6,
         className="p-3",
@@ -323,6 +333,13 @@ def create_layout() -> dbc.Container:
                     "groups": [],
                 },
             ),
+            # Global conditions store (T-042)
+            dcc.Store(id="global-conditions-store", data=None),
+            # Condition config modal state (T-042)
+            dcc.Store(
+                id="condition-config-state",
+                data={"conditions": [], "groups": [], "_open": False},
+            ),
         ]
     )
 
@@ -335,9 +352,12 @@ def create_layout() -> dbc.Container:
         children=[],
     )
 
+    # Condition config modal (T-042)
+    condition_config_modal = render_condition_config_modal()
+
     return dbc.Container(
         [navbar, body, viz_tabs, stores, tutorial_container,
-         runtime_dialog_container],
+         runtime_dialog_container, condition_config_modal],
         fluid=True,
         className="px-0",
     )

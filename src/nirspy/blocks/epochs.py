@@ -125,7 +125,69 @@ class EpochsExtractionBlock:
                 "It cannot be the first block in a pipeline."
             )
 
+        # ---- GlobalConditions no-op (T-042) ----
+        from nirspy.domain.conditions import resolve_conditions
+
+        resolved = resolve_conditions(
+            context.extra if hasattr(context, "extra") else {},
+            {
+                "per_condition_windows": getattr(
+                    self.params, "per_condition_windows", None
+                ),
+                "groups": getattr(self.params, "groups", None),
+                "event_id": getattr(self.params, "event_id", None),
+            },
+        )
+
+        # Effective local params (may be overridden by GlobalConditions)
+        eff_per_condition_windows: dict[str, ConditionWindow] | None = (
+            self.params.per_condition_windows
+        )
+        eff_groups: list[ConditionGroup] | None = self.params.groups
+        eff_event_id: dict[str, int] | None = self.params.event_id
+
+        if resolved is not None:
+            if resolved.groups:
+                # Groups path: build list[ConditionGroup] from domain ConditionGroup
+                eff_groups = [
+                    ConditionGroup(
+                        label=grp.label,
+                        condition_names=list(grp.conditions),
+                        tmin=grp.tmin,
+                        tmax=grp.tmax,
+                        baseline_tmin=grp.baseline_tmin,
+                        baseline_tmax=grp.baseline_tmax,
+                    )
+                    for grp in resolved.groups
+                ]
+                eff_per_condition_windows = None
+            else:
+                # Per-condition-windows path: build from ConditionConfig
+                eff_per_condition_windows = {
+                    name: ConditionWindow(
+                        tmin=cfg.tmin,
+                        tmax=cfg.tmax,
+                        baseline_tmin=cfg.baseline_tmin,
+                        baseline_tmax=cfg.baseline_tmax,
+                    )
+                    for name, cfg in resolved.condition_configs.items()
+                }
+                eff_groups = None
+            # event_id stays None — condition names from GlobalConditions are
+            # used directly as epoch condition keys via per_condition_windows/groups.
+            eff_event_id = None
+
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
+
+        # Apply GlobalConditions annotation filter (T-042) -- MUST happen before
+        # events_from_annotations so that renamed labels (name vs original_name)
+        # and excluded occurrences are visible to epoch creation.
+        if resolved is not None:
+            from nirspy.domain.conditions import GlobalConditions as _GC
+            from nirspy.engine.mne_adapter import MNEAdapter as _Adapter
+
+            gc: _GC = context.extra["global_conditions"]
+            raw = _Adapter.filter_annotations_by_conditions(raw, gc)
 
         # Validate channel type -- must be haemoglobin data
         ch_types = set(raw.get_channel_types())
@@ -154,7 +216,8 @@ class EpochsExtractionBlock:
             )
 
         # Validate mutual exclusion of groups / per_condition_windows
-        if self.params.groups is not None and self.params.per_condition_windows is not None:
+        # (check against effective values which may have been set by GlobalConditions)
+        if eff_groups is not None and eff_per_condition_windows is not None:
             raise ValidationError(
                 "EpochsExtractionBlock: groups and per_condition_windows are "
                 "mutually exclusive. Use one or the other, not both."
@@ -181,9 +244,9 @@ class EpochsExtractionBlock:
         metadata: dict[str, Any]
 
         # ---- Per-groups path ----
-        if self.params.groups is not None:
+        if eff_groups is not None:
             groups_dict: dict[str, ConditionGroup] = {
-                grp.label: grp for grp in self.params.groups
+                grp.label: grp for grp in eff_groups
             }
             epochs_dict = self._adapter.create_epochs_per_group(
                 raw,
@@ -210,11 +273,11 @@ class EpochsExtractionBlock:
             )
 
         # ---- Per-condition-windows path ----
-        if self.params.per_condition_windows is not None:
+        if eff_per_condition_windows is not None:
             # Resolve event_id
             used_event_id = (
-                self.params.event_id
-                if self.params.event_id is not None
+                eff_event_id
+                if eff_event_id is not None
                 else event_id
             )
             default_window = (
@@ -228,7 +291,7 @@ class EpochsExtractionBlock:
                 raw,
                 used_event_id,
                 default_window=default_window,
-                per_condition_windows=self.params.per_condition_windows,
+                per_condition_windows=eff_per_condition_windows,
                 reject=reject,
             )
             metadata = {
@@ -251,9 +314,9 @@ class EpochsExtractionBlock:
             )
 
         # ---- Legacy single-Epochs path ----
-        # Resolve event_id
+        # Resolve event_id (use effective value which may be overridden by GlobalConditions)
         used_event_id = (
-            self.params.event_id if self.params.event_id is not None else event_id
+            eff_event_id if eff_event_id is not None else event_id
         )
 
         # Build baseline tuple

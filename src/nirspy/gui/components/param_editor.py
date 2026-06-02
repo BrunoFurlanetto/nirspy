@@ -450,6 +450,7 @@ def render_param_editor(
     available_channels: list[str] | None = None,
     available_conditions: list[str] | None = None,
     snirf_path: str | None = None,
+    global_conditions_active: bool = False,
 ) -> html.Div:
     """Auto-generate a parameter form for *params_class*.
 
@@ -501,23 +502,45 @@ def render_param_editor(
 
     children: list[Any] = []
 
-    # For block_average and epochs_extraction: inject the unified HRF/condition
-    # mode toggle widget (T-025, T-041).
-    # The individual per_condition_windows / per_condition_groups fields
-    # are suppressed in _field_to_input and rendered here as one unit.
+    # Fields suppressed when GlobalConditions is active (windows set globally).
+    _TEMPORAL_WINDOW_FIELDS = {"tmin", "tmax", "baseline_tmin", "baseline_tmax"}
     _BLOCKS_WITH_CONDITION_WIDGET = ("block_average", "epochs_extraction")
+
     if block_id in _BLOCKS_WITH_CONDITION_WIDGET:
-        children.append(
-            _render_hrf_mode_widget(
-                instance_id,
-                current_values,
-                available_conditions=available_conditions,
-                snirf_path=snirf_path,
-                block_id=block_id,
+        if global_conditions_active:
+            # Replace the entire per-condition widget with an informational alert.
+            children.append(
+                dbc.Alert(
+                    "Temporal windows are managed by Global Conditions.",
+                    color="info",
+                    className="small py-2 mb-3",
+                )
             )
-        )
+        else:
+            # Normal path: inject the unified HRF/condition mode toggle widget
+            # (T-025, T-041). The individual per_condition_windows /
+            # per_condition_groups fields are suppressed in _field_to_input
+            # and rendered here as one unit.
+            children.append(
+                _render_hrf_mode_widget(
+                    instance_id,
+                    current_values,
+                    available_conditions=available_conditions,
+                    snirf_path=snirf_path,
+                    block_id=block_id,
+                )
+            )
 
     for f in fields:
+        # When GlobalConditions is active, hide top-level temporal window
+        # fields for blocks that define them (block_average, epochs_extraction).
+        if (
+            global_conditions_active
+            and block_id in _BLOCKS_WITH_CONDITION_WIDGET
+            and f.name in _TEMPORAL_WINDOW_FIELDS
+        ):
+            continue
+
         default = f.default if f.default is not dataclasses.MISSING else None
         val = current_values.get(f.name, default)
         children.extend(

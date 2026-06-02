@@ -97,6 +97,8 @@ class PipelineRunner:
         self._prev_result = None
         self._started = True
         self._block_ready = False
+        if self._pipeline.global_conditions is not None:
+            self._context.extra["global_conditions"] = self._pipeline.global_conditions
 
     def next_block(self) -> BlockSpec | None:
         """Advance to the next block and return its spec.
@@ -120,6 +122,7 @@ class PipelineRunner:
         self._current_idx = next_idx
         self._block_ready = True
         return self._enabled_steps[self._current_idx].spec
+
     def execute_current(
         self,
         params_override: dict[str, Any] | None = None,
@@ -180,6 +183,7 @@ class PipelineRunner:
         self._block_ready = False
 
         return result
+
     @property
     def is_complete(self) -> bool:
         """Whether all enabled blocks have been executed."""

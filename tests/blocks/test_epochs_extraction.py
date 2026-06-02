@@ -271,3 +271,80 @@ class TestEpochsExtractionBlock:
         block = EpochsExtractionBlock(params=params)
         with pytest.raises(ValidationError, match="mutually exclusive"):
             block.run(None, {"prev": raw_haemo_with_events})
+
+
+# ---------------------------------------------------------------------------
+# GlobalConditions override in EpochsExtractionBlock (T-042)
+# ---------------------------------------------------------------------------
+
+
+class TestEpochsExtractionGlobalConditions:
+    """Tests: global_conditions in context.extra overrides local EpochsExtractionParams."""
+
+    @pytest.fixture()
+    def raw_two_conditions(self) -> mne.io.BaseRaw:
+        """Raw with stim_A and stim_B annotations."""
+        sfreq = 10.0
+        n_times = int(30 * sfreq)
+        ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        ch_types = ["hbo", "hbr"]
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+        for ch in info["chs"]:
+            ch["loc"][3:6] = [0.0, 0.0, 0.0]
+            ch["loc"][6:9] = [0.03, 0.0, 0.0]
+        rng = np.random.default_rng(88)
+        data = rng.standard_normal((2, n_times)) * 1e-6
+        raw = mne.io.RawArray(data, info, verbose=False)
+        raw.set_annotations(mne.Annotations(
+            onset=[5.0, 15.0, 25.0],
+            duration=[0.0, 0.0, 0.0],
+            description=["stim_A", "stim_B", "stim_A"],
+        ))
+        return raw
+
+    def test_epochs_uses_global_windows(
+        self, raw_two_conditions: mne.io.BaseRaw
+    ) -> None:
+        """When global_conditions present, per_condition_windows built from GlobalConditions."""
+        from nirspy.domain.conditions import ConditionConfig, GlobalConditions
+        from nirspy.domain.execution import ExecutionContext
+
+        gc = GlobalConditions(
+            conditions=(
+                ConditionConfig(
+                    name="stim_A",
+                    original_name="stim_A",
+                    duration=1.0,
+                    tmin=-0.5,
+                    tmax=3.0,
+                    baseline_tmin=-0.5,
+                    baseline_tmax=0.0,
+                ),
+            )
+        )
+        ctx = ExecutionContext(extra={"global_conditions": gc})
+
+        # Local params with no per_condition_windows — global should build them
+        params = EpochsExtractionParams(tmin=-0.5, tmax=4.0)
+        block = EpochsExtractionBlock(params=params)
+        result = block.run(ctx, {"prev": raw_two_conditions})
+
+        assert result.metadata.get("per_condition_windows_used") is True
+        assert "stim_A" in result.metadata["conditions"]
+
+    def test_epochs_uses_local_when_global_absent(
+        self, raw_two_conditions: mne.io.BaseRaw
+    ) -> None:
+        """Without global_conditions in context, local params take full effect."""
+        from nirspy.domain.execution import ExecutionContext
+
+        ctx = ExecutionContext(extra={})
+
+        # Legacy path: no per_condition_windows, no groups
+        params = EpochsExtractionParams(tmin=-0.5, tmax=3.0)
+        block = EpochsExtractionBlock(params=params)
+        result = block.run(ctx, {"prev": raw_two_conditions})
+
+        # Should produce mne.Epochs (legacy path), not dict
+        assert isinstance(result.data, mne.Epochs)
+        assert "per_condition_windows_used" not in result.metadata

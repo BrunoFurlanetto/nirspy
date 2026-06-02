@@ -366,3 +366,103 @@ class TestDataTypeGLMResult:
             input_type=DataType.RAW_HAEMO, output_type=DataType.GLM_RESULT,
         )
         assert s.output_type == DataType.GLM_RESULT
+
+
+# ---------------------------------------------------------------------------
+# GlobalConditions override in GLMBlock (T-042)
+# ---------------------------------------------------------------------------
+
+
+class TestGLMBlockGlobalConditions:
+    """Tests: global_conditions in context.extra overrides local GLMParams."""
+
+    def _make_raw_multi(self) -> mne.io.BaseRaw:
+        sfreq = 10.0
+        n_times = int(90 * sfreq)
+        ch_names = ["S1_D1 hbo", "S1_D1 hbr"]
+        ch_types = ["hbo", "hbr"]
+        info = mne.create_info(ch_names=ch_names, sfreq=sfreq, ch_types=ch_types)
+        for ch in info["chs"]:
+            ch["loc"][3:6] = np.array([0.0, 0.0, 0.0])
+            ch["loc"][6:9] = np.array([0.03, 0.0, 0.0])
+        rng = np.random.default_rng(55)
+        data = rng.normal(0, 1e-6, (2, n_times))
+        raw = mne.io.RawArray(data, info, verbose=False)
+        ann = mne.Annotations(
+            onset=[5.0, 25.0, 50.0, 15.0, 35.0, 60.0],
+            duration=[1.0] * 6,
+            description=["cond_A", "cond_A", "cond_A", "cond_B", "cond_B", "cond_B"],
+        )
+        raw.set_annotations(ann)
+        return raw
+
+    def test_glm_uses_global_condition_durations(self) -> None:
+        """condition_durations from GlobalConditions override GLMParams.condition_durations."""
+        from unittest.mock import MagicMock
+
+        from nirspy.domain.conditions import ConditionConfig, GlobalConditions
+        from nirspy.domain.execution import ExecutionContext
+        from nirspy.domain.glm_result import GLMResult
+
+        raw = self._make_raw_multi()
+        gc = GlobalConditions(
+            conditions=(
+                ConditionConfig(
+                    name="cond_A", original_name="cond_A", duration=8.0
+                ),
+                ConditionConfig(
+                    name="cond_B", original_name="cond_B", duration=6.0
+                ),
+            )
+        )
+        ctx = ExecutionContext(extra={"global_conditions": gc})
+
+        stub = GLMResult(
+            theta=np.zeros((2, 2)),
+            t_stats=np.zeros((2, 2)),
+            p_values=np.zeros((2, 2)),
+            mse=np.ones(2),
+            channel_names=["S1_D1 hbo", "S1_D1 hbr"],
+            regressor_names=["cond_A", "cond_B"],
+            design_matrix=np.zeros((900, 2)),
+            metadata={"conditions": ["cond_A", "cond_B"]},
+        )
+        mock_adapter = MagicMock()
+        mock_adapter.run_glm.return_value = stub
+
+        # Local params have a different duration — it should be ignored
+        params = GLMParams(condition_durations={"cond_A": 1.0, "cond_B": 1.0})
+        GLMBlock(params=params, adapter=mock_adapter).run(ctx, {"upstream": raw})
+
+        call_kwargs = mock_adapter.run_glm.call_args.kwargs
+        assert call_kwargs["condition_durations"] == {"cond_A": 8.0, "cond_B": 6.0}
+
+    def test_glm_uses_local_when_global_absent(self) -> None:
+        """Without global_conditions in context, local condition_durations is used."""
+        from unittest.mock import MagicMock
+
+        from nirspy.domain.execution import ExecutionContext
+        from nirspy.domain.glm_result import GLMResult
+
+        raw = self._make_raw_multi()
+        ctx = ExecutionContext(extra={})
+
+        stub = GLMResult(
+            theta=np.zeros((2, 2)),
+            t_stats=np.zeros((2, 2)),
+            p_values=np.zeros((2, 2)),
+            mse=np.ones(2),
+            channel_names=["S1_D1 hbo", "S1_D1 hbr"],
+            regressor_names=["cond_A", "cond_B"],
+            design_matrix=np.zeros((900, 2)),
+            metadata={"conditions": ["cond_A", "cond_B"]},
+        )
+        mock_adapter = MagicMock()
+        mock_adapter.run_glm.return_value = stub
+
+        local_durations = {"cond_A": 3.5, "cond_B": 2.5}
+        params = GLMParams(condition_durations=local_durations)
+        GLMBlock(params=params, adapter=mock_adapter).run(ctx, {"upstream": raw})
+
+        call_kwargs = mock_adapter.run_glm.call_args.kwargs
+        assert call_kwargs["condition_durations"] == local_durations

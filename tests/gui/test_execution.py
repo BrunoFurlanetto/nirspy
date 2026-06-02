@@ -149,17 +149,17 @@ class TestProgressTracking:
 class TestExecutionErrorHandling:
     def test_no_clicks_no_update(self) -> None:
         from dash import no_update
-        result = run_pipeline_callback(None, None, None)
+        result = run_pipeline_callback(None, None, None, None)
         assert all(r is no_update for r in result)
 
     def test_empty_state_no_update(self) -> None:
         from dash import no_update
-        result = run_pipeline_callback(1, None, None)
+        result = run_pipeline_callback(1, None, None, None)
         assert all(r is no_update for r in result)
 
     def test_invalid_block_returns_error(self) -> None:
         state = [_make_entry("nonexistent_block")]
-        result = run_pipeline_callback(1, state, None)
+        result = run_pipeline_callback(1, state, None, None)
         assert "Failed to build pipeline" in str(result[4])
         assert result[5] is True
 

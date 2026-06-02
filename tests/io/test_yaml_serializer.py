@@ -102,6 +102,202 @@ class TestYamlSerializerNoneDataType:
         assert raw["steps"][0]["block_id"] == "load_snirf"
 
 
+# ---------------------------------------------------------------------------
+# GlobalConditions round-trip (T-042)
+# ---------------------------------------------------------------------------
+
+
+class TestYamlRoundTripGlobalConditions:
+    """Tests for global_conditions serialisation via dump/load (T-042)."""
+
+    def _make_gc_pipeline(self) -> Pipeline:
+        from nirspy.blocks.analysis import BlockAverageBlock, BlockAverageParams
+        from nirspy.domain.conditions import ConditionConfig, GlobalConditions
+
+        gc = GlobalConditions(
+            conditions=(
+                ConditionConfig(
+                    name="Cognitive",
+                    original_name="1.0",
+                    duration=20.0,
+                    tmin=-2.0,
+                    tmax=22.0,
+                    baseline_tmin=-2.0,
+                    baseline_tmax=0.0,
+                ),
+            )
+        )
+        block = BlockAverageBlock(params=BlockAverageParams())
+        return Pipeline(
+            name="gc-pipe",
+            description="",
+            steps=[block],
+            global_conditions=gc,
+        )
+
+    def _make_gc_pipeline_with_groups(self) -> Pipeline:
+        from nirspy.blocks.analysis import BlockAverageBlock, BlockAverageParams
+        from nirspy.domain.conditions import (
+            ConditionConfig,
+            ConditionGroup,
+            GlobalConditions,
+        )
+
+        gc = GlobalConditions(
+            conditions=(
+                ConditionConfig(name="TaskA", original_name="1.0", duration=10.0),
+                ConditionConfig(name="TaskB", original_name="2.0", duration=12.0),
+            ),
+            groups=(
+                ConditionGroup(
+                    label="AllTasks",
+                    conditions=("TaskA", "TaskB"),
+                    tmin=-2.0,
+                    tmax=20.0,
+                    baseline_tmin=-2.0,
+                    baseline_tmax=0.0,
+                ),
+            ),
+        )
+        block = BlockAverageBlock(params=BlockAverageParams())
+        return Pipeline(
+            name="gc-groups-pipe", description="", steps=[block], global_conditions=gc
+        )
+
+    def test_yaml_roundtrip_with_global_conditions(self, tmp_path: Path) -> None:
+        """dump_pipeline → load_pipeline preserves global_conditions field-by-field."""
+        from nirspy.blocks import registry
+        from nirspy.io.yaml_serializer import load_pipeline
+
+        pipeline = self._make_gc_pipeline()
+        target = tmp_path / "gc.yml"
+        dump_pipeline(pipeline, target)
+
+        loaded = load_pipeline(target, registry)
+
+        assert loaded.global_conditions is not None
+        assert len(loaded.global_conditions.conditions) == 1
+        cog = loaded.global_conditions.conditions[0]
+        assert cog.name == "Cognitive"
+        assert cog.original_name == "1.0"
+        assert cog.duration == 20.0
+        assert cog.tmin == -2.0
+        assert cog.tmax == 22.0
+
+    def test_yaml_roundtrip_global_with_groups(self, tmp_path: Path) -> None:
+        """dump → load preserves groups inside global_conditions."""
+        from nirspy.blocks import registry
+        from nirspy.io.yaml_serializer import load_pipeline
+
+        pipeline = self._make_gc_pipeline_with_groups()
+        target = tmp_path / "gc_groups.yml"
+        dump_pipeline(pipeline, target)
+
+        loaded = load_pipeline(target, registry)
+
+        assert loaded.global_conditions is not None
+        assert loaded.global_conditions.groups is not None
+        assert len(loaded.global_conditions.groups) == 1
+        grp = loaded.global_conditions.groups[0]
+        assert grp.label == "AllTasks"
+        assert "TaskA" in grp.conditions
+        assert "TaskB" in grp.conditions
+
+    def test_yaml_legacy_without_global_conditions(self, tmp_path: Path) -> None:
+        """YAML without global_conditions key loads correctly; field is None."""
+        import yaml
+
+        from nirspy.blocks import registry
+        from nirspy.io.yaml_serializer import load_pipeline
+
+        pipeline_dict = {
+            "schema_version": "0.1",
+            "name": "legacy",
+            "description": "",
+            "steps": [],
+            "params": {},
+            # no global_conditions key
+        }
+        target = tmp_path / "legacy.yml"
+        target.write_text(
+            yaml.dump(pipeline_dict, default_flow_style=False), encoding="utf-8"
+        )
+
+        loaded = load_pipeline(target, registry)
+        assert loaded.global_conditions is None
+
+    def test_yaml_included_occurrences_none(self, tmp_path: Path) -> None:
+        """included_occurrences: null in YAML → None in Python."""
+        import yaml
+
+        from nirspy.domain.conditions import global_conditions_from_dict
+
+        data: dict[str, object] = {
+            "conditions": [
+                {
+                    "name": "Cog",
+                    "original_name": "1.0",
+                    "included_occurrences": None,
+                    "duration": 10.0,
+                    "tmin": -2.0,
+                    "tmax": 15.0,
+                    "baseline_tmin": -2.0,
+                    "baseline_tmax": 0.0,
+                }
+            ]
+        }
+        # Simulate YAML round-trip
+        yaml_text = yaml.dump(data, default_flow_style=False)
+        loaded_data = yaml.safe_load(yaml_text)
+        gc = global_conditions_from_dict(loaded_data)
+
+        assert gc.conditions[0].included_occurrences is None
+
+    def test_yaml_included_occurrences_list(self, tmp_path: Path) -> None:
+        """included_occurrences list in YAML → tuple in Python."""
+        import yaml
+
+        from nirspy.domain.conditions import global_conditions_from_dict
+
+        data: dict[str, object] = {
+            "conditions": [
+                {
+                    "name": "Cog",
+                    "original_name": "1.0",
+                    "included_occurrences": [0, 2, 4],
+                    "duration": 10.0,
+                    "tmin": -2.0,
+                    "tmax": 15.0,
+                    "baseline_tmin": -2.0,
+                    "baseline_tmax": 0.0,
+                }
+            ]
+        }
+        yaml_text = yaml.dump(data, default_flow_style=False)
+        loaded_data = yaml.safe_load(yaml_text)
+        gc = global_conditions_from_dict(loaded_data)
+
+        assert isinstance(gc.conditions[0].included_occurrences, tuple)
+        assert gc.conditions[0].included_occurrences == (0, 2, 4)
+
+    def test_yaml_roundtrip_idempotent_with_global_conditions(
+        self, tmp_path: Path
+    ) -> None:
+        """dump → load → dump produces identical YAML bytes when gc is present."""
+        from nirspy.blocks import registry
+        from nirspy.io.yaml_serializer import load_pipeline
+
+        pipeline = self._make_gc_pipeline()
+        p1 = tmp_path / "pass1.yml"
+        dump_pipeline(pipeline, p1)
+
+        loaded = load_pipeline(p1, registry)
+        p2 = tmp_path / "pass2.yml"
+        dump_pipeline(loaded, p2)
+
+        assert p1.read_text(encoding="utf-8") == p2.read_text(encoding="utf-8")
+
+
 class TestYamlRoundTripPerConditionWindows:
     """Round-trip with per_condition_windows (T-012)."""
 

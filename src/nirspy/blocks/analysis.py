@@ -263,6 +263,67 @@ class BlockAverageBlock:
                 "It cannot be the first block in a pipeline."
             )
 
+        # ---- GlobalConditions no-op (T-042) ----
+        # When global conditions are present in context.extra the local
+        # condition params (pick_conditions, per_condition_windows,
+        # per_condition_groups) are overridden by the resolved values.
+        from nirspy.domain.conditions import resolve_conditions
+
+        resolved = resolve_conditions(
+            context.extra if hasattr(context, "extra") else {},
+            {
+                "pick_conditions": getattr(self.params, "pick_conditions", None),
+                "per_condition_windows": getattr(
+                    self.params, "per_condition_windows", None
+                ) or None,
+                "per_condition_groups": getattr(
+                    self.params, "per_condition_groups", None
+                ) or None,
+            },
+        )
+
+        # Effective local params (may be overridden by GlobalConditions)
+        eff_pick_conditions: list[str] | None = self.params.pick_conditions
+        eff_per_condition_windows: dict[str, ConditionWindow] = dict(
+            self.params.per_condition_windows
+        )
+        eff_per_condition_groups: dict[str, ConditionGroup] = dict(
+            self.params.per_condition_groups
+        )
+
+        if resolved is not None:
+            # Build effective pick_conditions from condition names
+            eff_pick_conditions = list(resolved.condition_configs.keys())
+
+            # Build per_condition_windows from ConditionConfig tmin/tmax/baseline
+            eff_per_condition_windows = {
+                name: ConditionWindow(
+                    tmin=cfg.tmin,
+                    tmax=cfg.tmax,
+                    baseline_tmin=cfg.baseline_tmin,
+                    baseline_tmax=cfg.baseline_tmax,
+                )
+                for name, cfg in resolved.condition_configs.items()
+            }
+
+            # Build per_condition_groups from resolved.groups if present
+            if resolved.groups:
+                eff_per_condition_groups = {
+                    grp.label: ConditionGroup(
+                        label=grp.label,
+                        condition_names=list(grp.conditions),
+                        tmin=grp.tmin,
+                        tmax=grp.tmax,
+                        baseline_tmin=grp.baseline_tmin,
+                        baseline_tmax=grp.baseline_tmax,
+                    )
+                    for grp in resolved.groups
+                }
+                # Groups path takes precedence — clear per_condition_windows
+                eff_per_condition_windows = {}
+            else:
+                eff_per_condition_groups = {}
+
         # Validate params
         required = {
             "tmin": self.params.tmin,
@@ -289,12 +350,21 @@ class BlockAverageBlock:
                 f"must be < tmax ({self.params.tmax})."
             )
 
-
         # Validate each per-condition window
-        for cond_name, window in self.params.per_condition_windows.items():
+        for cond_name, window in eff_per_condition_windows.items():
             _validate_condition_window(cond_name, window)
 
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
+
+        # Apply GlobalConditions annotation filter (T-042) -- MUST happen before
+        # events_from_annotations so that renamed labels (name vs original_name)
+        # and excluded occurrences are visible to epoch creation.
+        if resolved is not None:
+            from nirspy.domain.conditions import GlobalConditions as _GC
+            from nirspy.engine.mne_adapter import MNEAdapter as _Adapter
+
+            gc: _GC = context.extra["global_conditions"]
+            raw = _Adapter.filter_annotations_by_conditions(raw, gc)
 
         # Validate channel type
         ch_types = set(raw.get_channel_types())
@@ -317,15 +387,15 @@ class BlockAverageBlock:
 
         # Filter conditions if pick_conditions is set
         used_event_id: dict[str, int] | None = None
-        if self.params.pick_conditions is not None:
+        if eff_pick_conditions is not None:
             used_event_id = {
                 k: v for k, v in event_id.items()
-                if k in self.params.pick_conditions
+                if k in eff_pick_conditions
             }
             if not used_event_id:
                 raise ValidationError(
                     f"BlockAverageBlock: none of pick_conditions "
-                    f"{self.params.pick_conditions} found in event_id "
+                    f"{eff_pick_conditions} found in event_id "
                     f"{list(event_id.keys())}."
                 )
         else:
@@ -339,9 +409,7 @@ class BlockAverageBlock:
         # already removed them in the GUI path -- this is defence-in-depth
         # for YAML-loaded pipelines or any other path that bypasses the GUI.
         # Restores T-012 hotfix (2d7b63d) regressed by T-024 (#37).
-        filtered_pcw: dict[str, ConditionWindow] = dict(
-            self.params.per_condition_windows
-        )
+        filtered_pcw: dict[str, ConditionWindow] = dict(eff_per_condition_windows)
         if filtered_pcw:
             unknown = set(filtered_pcw) - set(used_event_id)
             if unknown:
@@ -369,14 +437,14 @@ class BlockAverageBlock:
             }
 
         # ---- Per-condition-groups path (T-024) ----
-        if self.params.per_condition_groups:
+        if eff_per_condition_groups:
             # Validate each group
-            for grp_name, grp in self.params.per_condition_groups.items():
+            for grp_name, grp in eff_per_condition_groups.items():
                 _validate_condition_group(grp_name, grp)
 
             epochs_dict = self._adapter.create_epochs_per_group(
                 raw,
-                groups=self.params.per_condition_groups,
+                groups=eff_per_condition_groups,
                 reject=reject,
             )
             evoked_dict = self._adapter.average_epochs(epochs_dict)

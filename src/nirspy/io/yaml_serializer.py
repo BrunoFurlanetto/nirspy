@@ -63,6 +63,7 @@ import yaml
 
 from nirspy.blocks.registry import BlockRegistry
 from nirspy.domain.block import BlockSpec
+from nirspy.domain.conditions import global_conditions_from_dict, global_conditions_to_dict
 from nirspy.domain.exceptions import ValidationError
 from nirspy.domain.pipeline import Pipeline
 
@@ -174,7 +175,7 @@ def _pipeline_to_dict(pipeline: Pipeline) -> dict[str, Any]:
             else:
                 serialised_params[block_spec.block_id] = params_value
 
-    return {
+    d: dict[str, Any] = {
         "description": pipeline.description,
         "name": pipeline.name,
         "params": serialised_params,
@@ -187,6 +188,9 @@ def _pipeline_to_dict(pipeline: Pipeline) -> dict[str, Any]:
             for step in pipeline.steps
         ],
     }
+    if pipeline.global_conditions is not None:
+        d["global_conditions"] = global_conditions_to_dict(pipeline.global_conditions)
+    return d
 
 
 def _pipeline_from_dict(data: dict[str, Any], registry: BlockRegistry) -> Pipeline:
@@ -240,8 +244,12 @@ def _pipeline_from_dict(data: dict[str, Any], registry: BlockRegistry) -> Pipeli
 
         steps.append(block)
 
+    gc_data = data.get("global_conditions")
+    global_conditions = global_conditions_from_dict(gc_data) if gc_data else None
+
     return Pipeline(
         name=data.get("name", ""),
         description=data.get("description", ""),
         steps=steps,
+        global_conditions=global_conditions,
     )

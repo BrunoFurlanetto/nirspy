@@ -16,6 +16,7 @@ import mne.preprocessing.nirs
 import numpy as np
 from scipy.interpolate import UnivariateSpline
 
+from nirspy.domain.conditions import GlobalConditions
 from nirspy.engine.exceptions import MNEOperationError, SnirfLoadError
 
 if TYPE_CHECKING:
@@ -982,6 +983,68 @@ class MNEAdapter:
             else:
                 filtered[condition] = evoked
         return filtered
+
+    @staticmethod
+    def filter_annotations_by_conditions(
+        raw: mne.io.BaseRaw,
+        global_conditions: GlobalConditions,
+    ) -> mne.io.BaseRaw:
+        """Filter and rename Raw annotations per GlobalConditions.
+
+        - Removes occurrences not in included_occurrences (None = keep all)
+        - Renames annotation descriptions from original_name to name
+        - Overrides durations per ConditionConfig.duration
+        - Annotations not matched by any ConditionConfig are kept unchanged
+        - Returns a copy (does not mutate the original)
+
+        Parameters
+        ----------
+        raw:
+            MNE Raw object with stimulus annotations.
+        global_conditions:
+            Pipeline-level condition configuration.
+
+        Returns
+        -------
+        mne.io.BaseRaw
+            Copy of *raw* with filtered and renamed annotations.
+        """
+        raw_out = raw.copy()
+        annot = raw_out.annotations
+        keep_onset: list[float] = []
+        keep_duration: list[float] = []
+        keep_desc: list[str] = []
+        condition_map = {
+            c.original_name: c for c in global_conditions.conditions
+        }
+        occurrence_counts: dict[str, int] = {}
+        for onset, duration, desc in zip(
+            annot.onset, annot.duration, annot.description, strict=False
+        ):
+            if desc not in condition_map:
+                keep_onset.append(float(onset))
+                keep_duration.append(float(duration))
+                keep_desc.append(desc)
+                continue
+            cond = condition_map[desc]
+            idx = occurrence_counts.get(desc, 0)
+            occurrence_counts[desc] = idx + 1
+            if (
+                cond.included_occurrences is not None
+                and idx not in cond.included_occurrences
+            ):
+                continue
+            keep_onset.append(float(onset))
+            keep_duration.append(cond.duration)
+            keep_desc.append(cond.name)
+        new_annot = mne.Annotations(
+            onset=keep_onset,
+            duration=keep_duration,
+            description=keep_desc,
+            orig_time=annot.orig_time,
+        )
+        raw_out.set_annotations(new_annot)
+        return raw_out
 
     # ------------------------------------------------------------------
     # Export (v0.4)

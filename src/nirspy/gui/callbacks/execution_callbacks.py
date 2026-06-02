@@ -150,12 +150,14 @@ def _build_pipeline_from_state(
     Input("run-button", "n_clicks"),
     State("pipeline-state", "data"),
     State("input-file-path", "data"),
+    State("global-conditions-store", "data"),
     prevent_initial_call=True,
 )
 def run_pipeline_callback(
     n_clicks: int | None,
     pipeline_state: list[dict[str, Any]] | None,
     input_file_path: str | None,
+    global_conditions_store_data: dict[str, Any] | None,
 ) -> tuple[Any, ...]:
     """Execute the pipeline and store results for visualization.
 
@@ -184,7 +186,13 @@ def run_pipeline_callback(
     # Build pipeline
     try:
         pipeline = _build_pipeline_from_state(pipeline_state)
-    except (KeyError, NirspyError) as exc:
+        if global_conditions_store_data:
+            from nirspy.domain.conditions import global_conditions_from_dict
+
+            pipeline.global_conditions = global_conditions_from_dict(
+                global_conditions_store_data
+            )
+    except (KeyError, ValueError, NirspyError) as exc:
         logger.exception("Failed to build pipeline")
         block_id = _extract_block_id(pipeline_state, exc)
         if isinstance(exc, NirspyError):
@@ -334,6 +342,7 @@ def _is_evoked(data: Any) -> bool:
     Output("input-file-path", "data"),
     Output("input-file-label", "children"),
     Output("pipeline-state", "data", allow_duplicate=True),
+    Output("condition-config-state", "data", allow_duplicate=True),
     Input("upload-input-file", "filename"),
     State("upload-input-file", "contents"),
     State("pipeline-state", "data"),
@@ -343,7 +352,7 @@ def store_input_file(
     filename: str | None,
     contents: str | None,
     pipeline_state: list[dict[str, Any]] | None,
-) -> tuple[Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any]:
     """Persist the uploaded SNIRF and propagate its path into LoadSnirf.
 
     The file is decoded from base64, written to a temp location and the
@@ -354,9 +363,13 @@ def store_input_file(
       3. Every ``load_snirf`` step in ``pipeline-state`` — so downstream
          callbacks (e.g. per-condition windows reading conditions from
          the SNIRF) see the path immediately, before any pipeline run.
+
+    Additionally (T-042i): if the SNIRF file has annotations, the
+    condition-config modal is populated and opened automatically so the
+    user can configure global conditions before running the pipeline.
     """
     if not filename or not contents:
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update
 
     content_string = (
         contents.split(",", 1)[1]
@@ -390,4 +403,36 @@ def store_input_file(
         if changed:
             updated_state = new_state
 
-    return str(tmp_path), label, updated_state
+    # T-042i: populate condition-config-state if SNIRF has annotations
+    condition_config_state: Any = no_update
+    try:
+        import mne  # noqa: I001
+        from nirspy.gui.components.condition_config_modal import (
+            build_conditions_from_annotations,
+        )
+
+        raw_snirf = mne.io.read_raw_snirf(str(tmp_path), preload=False, verbose=False)
+        annotations = [
+            {
+                "description": str(ann["description"]),
+                "onset": float(ann["onset"]),
+                "duration": float(ann["duration"]),
+            }
+            for ann in raw_snirf.annotations
+            if not str(ann["description"]).startswith("BAD")
+            and str(ann["description"]) not in ("", "boundary")
+        ]
+        if annotations:
+            conditions = build_conditions_from_annotations(annotations)
+            condition_config_state = {
+                "conditions": conditions,
+                "groups": [],
+                "_open": True,
+            }
+    except Exception:  # noqa: BLE001
+        logger.debug(
+            "Could not read annotations from SNIRF for condition config modal.",
+            exc_info=True,
+        )
+
+    return str(tmp_path), label, updated_state, condition_config_state
