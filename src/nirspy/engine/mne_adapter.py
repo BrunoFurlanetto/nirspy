@@ -682,6 +682,7 @@ class MNEAdapter:
                     tmax=tmax,
                     baseline=(bl_tmin, bl_tmax),
                     reject=reject,
+                    reject_by_annotation=False,
                     preload=True,
                     verbose=False,
                 )
@@ -942,14 +943,23 @@ class MNEAdapter:
         result: dict[str, mne.Evoked] = {}
         for condition, cond_epochs in epochs_dict.items():
             if len(cond_epochs) == 0:
+                logger.warning(
+                    "BlockAverage: condition %r had all epochs dropped "
+                    "(possible causes: tmax/tmin window extends beyond "
+                    "recording bounds, BAD annotation overlap, or "
+                    "reject_by_amplitude threshold too strict). "
+                    "Condition excluded from HRF result.",
+                    condition,
+                )
                 continue
             evoked = cond_epochs.average()
             result[condition] = evoked
         if not result:
             raise MNEOperationError(
-                "average_epochs() produced no evoked: all conditions "
-                "had every epoch rejected. Loosen reject_by_amplitude "
-                "or raise amplitude_threshold."
+                "average_epochs() produced no evoked: all conditions had "
+                "every epoch dropped. Check tmax/tmin window vs recording "
+                "length, BAD annotation overlap, or loosen "
+                "reject_by_amplitude / raise amplitude_threshold."
             )
         return result
 
