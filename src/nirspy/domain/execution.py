@@ -122,6 +122,7 @@ class PipelineRunner:
         self._current_idx = next_idx
         self._block_ready = True
         return self._enabled_steps[self._current_idx].spec
+
     def execute_current(
         self,
         params_override: dict[str, Any] | None = None,
@@ -182,6 +183,7 @@ class PipelineRunner:
         self._block_ready = False
 
         return result
+
     @property
     def is_complete(self) -> bool:
         """Whether all enabled blocks have been executed."""
