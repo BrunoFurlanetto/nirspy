@@ -91,13 +91,6 @@ def apply_condition_config(
         )
         try:
             state_dur = cond.get("duration")
-            logger.debug(
-                "[apply_condition_config] cond=%r idx=%d state_dur=%r prev_gc_dur=%r",
-                orig,
-                raw_idx,
-                state_dur,
-                _prev_dur.get(orig),
-            )
             if state_dur is not None:
                 try:
                     dur = float(state_dur)
@@ -105,11 +98,6 @@ def apply_condition_config(
                     dur = _prev_dur.get(orig, 1.0)
             else:
                 dur = _prev_dur.get(orig, 1.0)
-            logger.debug(
-                "[apply_condition_config] cond=%r → dur_final=%r",
-                orig,
-                dur,
-            )
             tmin = float(cond.get("tmin", -2.0))
             tmax = float(cond.get("tmax", 18.0))
             btmin = float(cond.get("baseline_tmin", -2.0))
@@ -191,10 +179,6 @@ def apply_condition_config(
         )
 
     serialised = global_conditions_to_dict(gc)
-    logger.debug(
-        "[apply_condition_config] SUCCESS — serialised durations: %s",
-        {c["original_name"]: c["duration"] for c in serialised.get("conditions", [])},
-    )
 
     # Build updated condition-config-state to keep state in sync with store
     occ_lookup: dict[str, list[Any]] = {
@@ -502,20 +486,6 @@ def open_condition_modal_from_button(
     if not n_clicks or not global_conditions:
         return no_update, no_update
 
-    logger.debug(
-        "[open_condition_modal_from_button] gc_store durations: %s",
-        {
-            c.get("original_name", ""): c.get("duration")
-            for c in (global_conditions.get("conditions") or [])
-        },
-    )
-    logger.debug(
-        "[open_condition_modal_from_button] state durations before rebuild: %s",
-        {
-            c.get("original_name", ""): c.get("duration")
-            for c in ((state or {}).get("conditions") or [])
-        },
-    )
 
     # occurrences only live in condition-config-state (not serialised to global store)
     occ_by_orig: dict[str, list[Any]] = {
@@ -539,10 +509,6 @@ def open_condition_modal_from_button(
             "occurrences": occ_by_orig.get(orig, []),
         })
 
-    logger.debug(
-        "[open_condition_modal_from_button] restored durations: %s",
-        {c["original_name"]: c["duration"] for c in restored},
-    )
 
     new_state: dict[str, Any] = dict(state) if state else {}
     new_state["conditions"] = restored

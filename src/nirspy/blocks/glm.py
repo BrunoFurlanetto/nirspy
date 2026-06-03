@@ -167,23 +167,6 @@ class GLMBlock:
             # and condition_durations handles duration overrides.
             # included_occurrences selection is not supported at GLM level.
 
-        # ---- T-042 debug: log effective condition_durations ----
-        _source = "global_conditions" if resolved is not None else "local_params"
-        if eff_condition_durations:
-            for _cond, _dur in eff_condition_durations.items():
-                logger.debug(
-                    "GLMBlock [T-042] condition=%r  duration=%.4f s  source=%s",
-                    _cond,
-                    _dur,
-                    _source,
-                )
-        else:
-            logger.debug(
-                "GLMBlock [T-042] condition_durations=None (will read from "
-                "raw annotations, fallback 1.0 s)  source=%s",
-                _source,
-            )
-
         # Validate params
         if self.params.drift_model not in VALID_DRIFT_MODELS:
             raise ValidationError(
