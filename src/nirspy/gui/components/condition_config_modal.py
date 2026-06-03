@@ -650,6 +650,11 @@ def _populate_modal(
     groups: list[dict[str, Any]] = state.get("groups", [])
     available_names = [c.get("name", "") for c in conditions]
 
+    logger.debug(
+        "[_populate_modal] opening modal with durations: %s",
+        {c.get("original_name", c.get("name", "")): c.get("duration") for c in conditions},
+    )
+
     cond_cards = _render_conditions_section(conditions)
     group_cards = _render_groups_section(groups, available_names)
 
@@ -751,6 +756,14 @@ def _sync_condition_inputs(  # noqa: PLR0913
     s: dict[str, Any] = state or {"conditions": [], "groups": []}
     existing: list[dict[str, Any]] = list(s.get("conditions", []))
 
+    logger.debug(
+        "[_sync_condition_inputs] incoming DOM durations: %s", durations
+    )
+    logger.debug(
+        "[_sync_condition_inputs] state durations before sync: %s",
+        [c.get("duration") for c in existing],
+    )
+
     n = max(len(names), len(existing))
     updated: list[dict[str, Any]] = []
     for i in range(n):
@@ -798,6 +811,10 @@ def _sync_condition_inputs(  # noqa: PLR0913
             }
         )
 
+    logger.debug(
+        "[_sync_condition_inputs] state durations after sync: %s",
+        [c.get("duration") for c in updated],
+    )
     return {**s, "conditions": updated}
 
 

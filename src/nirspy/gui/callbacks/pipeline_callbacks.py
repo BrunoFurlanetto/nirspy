@@ -8,10 +8,13 @@ is the single source of truth.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import uuid
 from typing import Any
 
 from dash import ALL, Input, Output, State, callback, ctx, no_update
+
+logger = logging.getLogger(__name__)
 
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockSpec
@@ -83,6 +86,15 @@ def apply_condition_config(
             # Prefer DOM value; fall back to previous GC store, then state
             _cond_idx = len(condition_configs)
             dom_dur = dom_durations[_cond_idx] if _cond_idx < len(dom_durations) else None
+            logger.debug(
+                "[apply_condition_config] cond=%r idx=%d dom_dur=%r "
+                "prev_gc_dur=%r state_dur=%r",
+                orig,
+                _cond_idx,
+                dom_dur,
+                _prev_dur.get(orig),
+                cond.get("duration"),
+            )
             if dom_dur is not None:
                 try:
                     dur = float(dom_dur)
@@ -90,6 +102,12 @@ def apply_condition_config(
                     dur = _prev_dur.get(orig, float(cond.get("duration", 1.0)))
             else:
                 dur = _prev_dur.get(orig, float(cond.get("duration", 1.0)))
+            logger.debug(
+                "[apply_condition_config] cond=%r → dur_final=%r (source=%s)",
+                orig,
+                dur,
+                "dom" if dom_dur is not None else ("prev_gc" if orig in _prev_dur else "state"),
+            )
             tmin = float(cond.get("tmin", -2.0))
             tmax = float(cond.get("tmax", 18.0))
             btmin = float(cond.get("baseline_tmin", -2.0))
@@ -171,6 +189,10 @@ def apply_condition_config(
         )
 
     serialised = global_conditions_to_dict(gc)
+    logger.debug(
+        "[apply_condition_config] SUCCESS — serialised durations: %s",
+        {c["original_name"]: c["duration"] for c in serialised.get("conditions", [])},
+    )
 
     # Build updated condition-config-state to keep state in sync with store
     occ_lookup: dict[str, list[Any]] = {
@@ -471,6 +493,21 @@ def open_condition_modal_from_button(
     if not n_clicks or not global_conditions:
         return no_update, no_update
 
+    logger.debug(
+        "[open_condition_modal_from_button] gc_store durations: %s",
+        {
+            c.get("original_name", ""): c.get("duration")
+            for c in (global_conditions.get("conditions") or [])
+        },
+    )
+    logger.debug(
+        "[open_condition_modal_from_button] state durations before rebuild: %s",
+        {
+            c.get("original_name", ""): c.get("duration")
+            for c in ((state or {}).get("conditions") or [])
+        },
+    )
+
     # occurrences only live in condition-config-state (not serialised to global store)
     occ_by_orig: dict[str, list[Any]] = {
         c.get("original_name", ""): c.get("occurrences", [])
@@ -492,6 +529,11 @@ def open_condition_modal_from_button(
             "baseline_tmax": gc_cond["baseline_tmax"],
             "occurrences": occ_by_orig.get(orig, []),
         })
+
+    logger.debug(
+        "[open_condition_modal_from_button] restored durations: %s",
+        {c["original_name"]: c["duration"] for c in restored},
+    )
 
     new_state: dict[str, Any] = dict(state) if state else {}
     new_state["conditions"] = restored

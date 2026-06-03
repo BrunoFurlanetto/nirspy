@@ -424,11 +424,18 @@ def store_input_file(
         ]
         if annotations:
             conditions = build_conditions_from_annotations(annotations)
+            logger.debug(
+                "[store_input_file] RESETTING condition-config-state from SNIRF annotations. "
+                "Durations from SNIRF: %s",
+                {c["original_name"]: c["duration"] for c in conditions},
+            )
             condition_config_state = {
                 "conditions": conditions,
                 "groups": [],
                 "_open": True,
             }
+        else:
+            logger.debug("[store_input_file] no annotations found in SNIRF — condition-config-state unchanged")
     except Exception:  # noqa: BLE001
         logger.debug(
             "Could not read annotations from SNIRF for condition config modal.",
