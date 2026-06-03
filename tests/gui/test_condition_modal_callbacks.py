@@ -446,7 +446,7 @@ class TestOpenConditionModalFromButton:
         """gc_store duration (8.0) is restored into the new state."""
         gc_store = _gc_store(conditions=[_gc_cond("HbO", duration=8.0)])
         state = _state(conditions=[_cond("HbO", duration=1.0)])
-        _, new_state = open_condition_modal_from_button(
+        new_state, _ = open_condition_modal_from_button(
             n_clicks=1,
             state=state,
             global_conditions=gc_store,
@@ -464,7 +464,7 @@ class TestOpenConditionModalFromButton:
             ]
         )
         state = _state(conditions=[_cond("HbO")])
-        _, new_state = open_condition_modal_from_button(
+        new_state, _ = open_condition_modal_from_button(
             n_clicks=1, state=state, global_conditions=gc_store
         )
         c = new_state["conditions"][0]
@@ -474,14 +474,15 @@ class TestOpenConditionModalFromButton:
         assert c["baseline_tmax"] == 0.5
 
     # O-03 --------------------------------------------------------------------
-    def test_sets_open_true_in_state(self) -> None:
-        """_open flag is set to True in returned state."""
+    def test_fires_open_trigger(self) -> None:
+        """A valid call fires the open trigger (second return value is not no_update)."""
         gc_store = _gc_store(conditions=[_gc_cond("HbO")])
         state = _state(conditions=[_cond("HbO")])
-        _, new_state = open_condition_modal_from_button(
+        new_state, open_trigger = open_condition_modal_from_button(
             n_clicks=1, state=state, global_conditions=gc_store
         )
-        assert new_state.get("_open") is True
+        assert open_trigger is not no_update
+        assert isinstance(open_trigger, dict)
 
     # O-04 --------------------------------------------------------------------
     def test_no_update_when_n_clicks_none(self) -> None:
@@ -510,7 +511,7 @@ class TestOpenConditionModalFromButton:
                 _cond("HbR", duration=2.0),
             ]
         )
-        _, new_state = open_condition_modal_from_button(
+        new_state, _ = open_condition_modal_from_button(
             n_clicks=1, state=state, global_conditions=gc_store
         )
         names = [c["original_name"] for c in new_state["conditions"]]
@@ -535,7 +536,7 @@ class TestOpenConditionModalFromButton:
             groups=gc_groups,
         )
         state = _state(conditions=[_cond("HbO")])
-        _, new_state = open_condition_modal_from_button(
+        new_state, _ = open_condition_modal_from_button(
             n_clicks=1, state=state, global_conditions=gc_store
         )
         assert "groups" in new_state
@@ -556,7 +557,7 @@ class TestOpenConditionModalFromButton:
         ]
         gc_store = _gc_store(conditions=[_gc_cond("HbO")])  # no groups key
         state = _state(conditions=[_cond("HbO")], groups=existing_groups)
-        _, new_state = open_condition_modal_from_button(
+        new_state, _ = open_condition_modal_from_button(
             n_clicks=1, state=state, global_conditions=gc_store
         )
         # gc_store had no groups → state groups must survive

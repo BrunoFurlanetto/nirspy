@@ -510,8 +510,8 @@ def render_params(
 
 
 @callback(
-    Output("condition-config-modal", "is_open", allow_duplicate=True),
     Output("condition-config-state", "data", allow_duplicate=True),
+    Output("condition-modal-open-trigger", "data", allow_duplicate=True),
     Input("btn-edit-conditions", "n_clicks"),
     State("condition-config-state", "data"),
     State("global-conditions-store", "data"),
@@ -522,7 +522,14 @@ def open_condition_modal_from_button(
     state: dict[str, Any] | None,
     global_conditions: dict[str, Any] | None,
 ) -> tuple[Any, Any]:
-    """Re-open the condition config modal, restoring last-applied values."""
+    """Re-open the condition config modal, restoring last-applied values.
+
+    Writes the restored state to ``condition-config-state`` and fires the
+    dedicated ``condition-modal-open-trigger`` store.  ``_populate_modal``
+    listens on the trigger rather than on the state store directly, so it is
+    not serialised with ``_sync_condition_inputs`` by Dash — eliminating the
+    keystroke race condition.
+    """
     if not n_clicks or not global_conditions:
         return no_update, no_update
 
@@ -575,8 +582,11 @@ def open_condition_modal_from_button(
     if gc_groups is not None:
         new_state["groups"] = gc_groups
 
-    new_state["_open"] = True
-    return no_update, new_state
+    # Fire the dedicated open trigger instead of setting _open=True in state.
+    # This keeps _populate_modal's Input separate from condition-config-state,
+    # so Dash does not serialise it with _sync_condition_inputs.
+    open_trigger = {"ts": n_clicks}
+    return new_state, open_trigger
 
 
 @callback(

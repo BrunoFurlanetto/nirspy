@@ -343,6 +343,7 @@ def _is_evoked(data: Any) -> bool:
     Output("input-file-label", "children"),
     Output("pipeline-state", "data", allow_duplicate=True),
     Output("condition-config-state", "data", allow_duplicate=True),
+    Output("condition-modal-open-trigger", "data", allow_duplicate=True),
     Input("upload-input-file", "filename"),
     State("upload-input-file", "contents"),
     State("pipeline-state", "data"),
@@ -352,7 +353,7 @@ def store_input_file(
     filename: str | None,
     contents: str | None,
     pipeline_state: list[dict[str, Any]] | None,
-) -> tuple[Any, Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any, Any]:
     """Persist the uploaded SNIRF and propagate its path into LoadSnirf.
 
     The file is decoded from base64, written to a temp location and the
@@ -369,7 +370,7 @@ def store_input_file(
     user can configure global conditions before running the pipeline.
     """
     if not filename or not contents:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     content_string = (
         contents.split(",", 1)[1]
@@ -403,8 +404,12 @@ def store_input_file(
         if changed:
             updated_state = new_state
 
-    # T-042i: populate condition-config-state if SNIRF has annotations
+    # T-042i: populate condition-config-state if SNIRF has annotations.
+    # The open trigger is written to a *separate* store so that _populate_modal
+    # no longer shares an output with _sync_condition_inputs, eliminating the
+    # Dash callback serialisation that caused the keystroke race condition.
     condition_config_state: Any = no_update
+    open_trigger: Any = no_update
     try:
         import mne  # noqa: I001
         from nirspy.gui.components.condition_config_modal import (
@@ -432,8 +437,11 @@ def store_input_file(
             condition_config_state = {
                 "conditions": conditions,
                 "groups": [],
-                "_open": True,
             }
+            # Fire the dedicated open trigger — _populate_modal listens on this
+            # store rather than condition-config-state to avoid serialisation
+            # with _sync_condition_inputs.
+            open_trigger = {"ts": filename}
         else:
             logger.debug("[store_input_file] no annotations found in SNIRF — condition-config-state unchanged")
     except Exception:  # noqa: BLE001
@@ -442,4 +450,4 @@ def store_input_file(
             exc_info=True,
         )
 
-    return str(tmp_path), label, updated_state, condition_config_state
+    return str(tmp_path), label, updated_state, condition_config_state, open_trigger

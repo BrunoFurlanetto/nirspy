@@ -651,18 +651,23 @@ clientside_callback(
         // Select all dcc.Input elements whose id JSON contains "cond-cfg-duration".
         // Dash serialises pattern-matching IDs as JSON with alphabetical keys, e.g.
         // {"cond_idx":0,"type":"cond-cfg-duration"}.
-        var inputs = document.querySelectorAll('input[id*="cond-cfg-duration"]');
-        if (!inputs || inputs.length === 0) {
+        // dcc.Input in Dash 2.x wraps the <input> in a div that carries the JSON id;
+        // the <input> itself does not have the id attribute, so we must query the
+        // wrapper div and then find the child <input>.
+        var wrappers = document.querySelectorAll('[id*="cond-cfg-duration"]');
+        if (!wrappers || wrappers.length === 0) {
             return window.dash_clientside.no_update;
         }
 
-        // Parse cond_idx from each element's id so we can sort correctly.
+        // Parse cond_idx from each wrapper's id so we can sort correctly.
         var items = [];
-        inputs.forEach(function(el) {
+        wrappers.forEach(function(wrapper) {
             var parsed = null;
-            try { parsed = JSON.parse(el.id); } catch(e) { return; }
+            try { parsed = JSON.parse(wrapper.id); } catch(e) { return; }
             if (parsed && parsed["type"] === "cond-cfg-duration") {
-                var v = parseFloat(el.value);
+                // The actual <input> is a descendant of the wrapper div.
+                var inputEl = wrapper.querySelector('input') || wrapper;
+                var v = parseFloat(inputEl.value);
                 items.push({ idx: parsed["cond_idx"], value: isNaN(v) ? null : v });
             }
         });
@@ -687,28 +692,29 @@ clientside_callback(
     Output("condition-config-conditions-container", "children"),
     Output("condition-config-groups-container", "children"),
     Output("condition-config-modal", "is_open"),
-    Output("condition-config-state", "data"),
-    Input("condition-config-state", "data"),
+    Input("condition-modal-open-trigger", "data"),
+    State("condition-config-state", "data"),
     prevent_initial_call=True,
 )
 def _populate_modal(
+    trigger: Any,
     state: dict[str, Any] | None,
-) -> tuple[Any, Any, Any, Any]:
-    """Re-render the modal content when condition-config-state changes externally.
+) -> tuple[Any, Any, Any]:
+    """Re-render the modal content when the open-trigger store fires.
 
-    This callback is triggered when the state store is written from outside
-    (e.g. after a SNIRF file is loaded). It renders the condition cards and
-    group cards and opens the modal.
+    This callback is triggered by ``condition-modal-open-trigger`` — a
+    dedicated store written by callers instead of mutating
+    ``condition-config-state`` directly.  Decoupling the trigger from the
+    shared state store prevents Dash from serialising this callback with
+    ``_sync_condition_inputs`` (which also outputs ``condition-config-state``),
+    eliminating the keystroke race condition where typed values were lost
+    while ``_populate_modal`` was running on the server.
     """
-    if not state:
-        return no_update, no_update, no_update, no_update
+    if not trigger:
+        return no_update, no_update, no_update
 
-    # Only open when explicitly requested
-    if not state.get("_open", False):
-        return no_update, no_update, no_update, no_update
-
-    conditions: list[dict[str, Any]] = state.get("conditions", [])
-    groups: list[dict[str, Any]] = state.get("groups", [])
+    conditions: list[dict[str, Any]] = (state or {}).get("conditions", [])
+    groups: list[dict[str, Any]] = (state or {}).get("groups", [])
     available_names = [c.get("name", "") for c in conditions]
 
     logger.debug(
@@ -719,9 +725,7 @@ def _populate_modal(
     cond_cards = _render_conditions_section(conditions)
     group_cards = _render_groups_section(groups, available_names)
 
-    # Clear the _open flag to prevent re-triggering
-    new_state = {**state, "_open": False}
-    return cond_cards, group_cards, True, new_state
+    return cond_cards, group_cards, True
 
 
 @callback(
