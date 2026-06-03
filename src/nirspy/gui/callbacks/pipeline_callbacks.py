@@ -36,6 +36,7 @@ from nirspy.gui.components.pipeline_view import render_pipeline_view
     State("condition-config-state", "data"),
     State({"type": "cond-cfg-duration", "cond_idx": ALL}, "value"),
     State("global-conditions-store", "data"),
+    State("condition-apply-snapshot", "data"),
     prevent_initial_call=True,
 )
 def apply_condition_config(
@@ -43,6 +44,7 @@ def apply_condition_config(
     state: dict[str, Any] | None,
     dom_durations: list[float | None],
     prev_gc: dict[str, Any] | None,
+    snapshot_durations: list[float | None] | None,
 ) -> tuple[Any, Any, Any, Any, Any]:
     """Build GlobalConditions from modal state and persist to store.
 
@@ -50,6 +52,15 @@ def apply_condition_config(
     serialises it via ``global_conditions_to_dict``, and writes it to the
     ``global-conditions-store``.  Closes the modal on success; shows an
     inline warning on validation error.
+
+    Duration resolution order (highest priority first):
+    1. ``snapshot_durations`` — captured clientside synchronously on click,
+       avoiding Dash race conditions where the server-side ``State`` for
+       ``dcc.Input`` may not reflect the most recently typed value.
+    2. ``dom_durations`` — server-side ``State`` of the DOM inputs (fallback
+       when snapshot is unavailable, e.g. in direct unit tests).
+    3. ``prev_gc`` store — previously applied value for this condition.
+    4. ``state`` — the condition's last known value in the modal state store.
     """
     if not n_clicks or not state:
         return no_update, no_update, no_update, no_update, no_update
@@ -63,6 +74,24 @@ def apply_condition_config(
 
     raw_conditions: list[dict[str, Any]] = state.get("conditions", [])
     raw_groups: list[dict[str, Any]] = state.get("groups", [])
+
+    # Resolve the effective durations list.
+    # Prefer the clientside snapshot (synchronous DOM read) over the server-side
+    # State, which may be stale due to Dash's async round-trip race condition.
+    effective_durations: list[float | None]
+    if snapshot_durations is not None and len(snapshot_durations) > 0:
+        effective_durations = list(snapshot_durations)
+        logger.debug(
+            "[apply_condition_config] using clientside snapshot durations: %s",
+            effective_durations,
+        )
+    else:
+        effective_durations = list(dom_durations)
+        logger.debug(
+            "[apply_condition_config] snapshot unavailable — using server-side "
+            "dom_durations: %s",
+            effective_durations,
+        )
 
     # Build lookup of previous GC durations as fallback when DOM field is empty
     _prev_dur: dict[str, float] = {}
@@ -83,13 +112,15 @@ def apply_condition_config(
             tuple(selected_occs) if len(selected_occs) < len(occs) else None
         )
         try:
-            # Prefer DOM value; fall back to previous GC store, then state.
-            # Use raw_idx (position in raw_conditions) because dom_durations is
-            # indexed by rendered card position, which matches raw_conditions
-            # order — NOT the position in the already-built condition_configs list.
-            dom_dur = dom_durations[raw_idx] if raw_idx < len(dom_durations) else None
+            # Use effective_durations (snapshot-first) indexed by rendered card
+            # position, which matches raw_conditions order.
+            dom_dur = (
+                effective_durations[raw_idx]
+                if raw_idx < len(effective_durations)
+                else None
+            )
             logger.debug(
-                "[apply_condition_config] cond=%r idx=%d dom_dur=%r "
+                "[apply_condition_config] cond=%r idx=%d effective_dur=%r "
                 "prev_gc_dur=%r state_dur=%r",
                 orig,
                 raw_idx,

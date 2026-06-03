@@ -31,7 +31,7 @@ from collections import defaultdict
 from typing import Any
 
 import dash_bootstrap_components as dbc
-from dash import ALL, Input, Output, State, callback, dcc, html, no_update
+from dash import ALL, ClientsideFunction, Input, Output, State, callback, clientside_callback, dcc, html, no_update
 
 logger = logging.getLogger(__name__)
 
@@ -624,6 +624,27 @@ def render_condition_config_modal() -> dbc.Modal:
         backdrop="static",
         keyboard=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Clientside callback — snapshot duration DOM values on Apply click
+# ---------------------------------------------------------------------------
+# This runs in the browser synchronously before the server-side Apply callback,
+# capturing the exact values in the DOM at the moment the user clicks Apply.
+# This avoids a Dash race condition where _sync_condition_inputs may not have
+# propagated the most recently typed value before Apply fires.
+clientside_callback(
+    """
+    function(n_clicks, durations) {
+        if (!n_clicks) { return window.dash_clientside.no_update; }
+        return durations;
+    }
+    """,
+    Output("condition-apply-snapshot", "data"),
+    Input("condition-config-apply-btn", "n_clicks"),
+    State({"type": "cond-cfg-duration", "cond_idx": ALL}, "value"),
+    prevent_initial_call=True,
+)
 
 
 # ---------------------------------------------------------------------------

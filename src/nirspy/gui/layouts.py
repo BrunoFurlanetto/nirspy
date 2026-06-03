@@ -340,6 +340,8 @@ def create_layout() -> dbc.Container:
                 id="condition-config-state",
                 data={"conditions": [], "groups": [], "_open": False},
             ),
+            # Snapshot of duration DOM values captured clientside on Apply click (T-042)
+            dcc.Store(id="condition-apply-snapshot", data=None),
         ]
     )
 

@@ -112,6 +112,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[7.5],
             prev_gc=None,
+            snapshot_durations=None,
         )
         store_data, is_open, warning, warning_style, synced_state = result
         assert store_data is not no_update
@@ -127,6 +128,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[12.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         store_data, is_open, *_ = result
         assert store_data["conditions"][0]["duration"] == 12.0
@@ -141,6 +143,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[None],
             prev_gc=prev_gc,
+            snapshot_durations=None,
         )
         store_data, is_open, *_ = result
         assert store_data["conditions"][0]["duration"] == 15.0
@@ -154,6 +157,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[None],
             prev_gc=None,
+            snapshot_durations=None,
         )
         store_data, is_open, *_ = result
         assert store_data["conditions"][0]["duration"] == 10.0
@@ -167,6 +171,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is False
 
@@ -179,6 +184,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert store_data["conditions"][0]["tmin"] == -3.0
         assert store_data["conditions"][0]["tmax"] == 20.0
@@ -194,6 +200,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert store_data["conditions"][0]["baseline_tmin"] == -1.5
         assert store_data["conditions"][0]["baseline_tmax"] == 0.5
@@ -207,6 +214,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is True
         assert warning  # non-empty error message
@@ -220,6 +228,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[0.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is True
         assert warning
@@ -233,6 +242,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[-1.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is True
         assert warning
@@ -246,6 +256,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert all(r is no_update for r in result)
 
@@ -257,6 +268,7 @@ class TestApplyConditionConfig:
             state=None,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert all(r is no_update for r in result)
 
@@ -269,6 +281,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is True
         assert "least one condition" in warning.lower()
@@ -287,6 +300,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[7.0, 9.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is False
         durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
@@ -317,6 +331,7 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[None, 60.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is False
         durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
@@ -342,10 +357,80 @@ class TestApplyConditionConfig:
             state=state,
             dom_durations=[5.0],
             prev_gc=None,
+            snapshot_durations=None,
         )
         assert is_open is False
         assert "groups" in store_data
         assert store_data["groups"][0]["label"] == "All"
+
+    # A-17 --------------------------------------------------------------------
+    def test_snapshot_takes_priority_over_dom_state(self) -> None:
+        """snapshot_durations beats dom_durations when both are present.
+
+        Regression for the Dash race condition where the server-side State
+        of dcc.Input may lag behind the actual DOM value typed by the user.
+        The clientside snapshot is captured synchronously at click time and
+        must take precedence over the stale server-side State.
+        """
+        state = _state(conditions=[_cond("HbO", duration=1.0)])
+        store_data, is_open, *_ = apply_condition_config(
+            n_clicks=1,
+            state=state,
+            dom_durations=[0.1],       # stale server-side State (lag from race condition)
+            prev_gc=None,
+            snapshot_durations=[60.0], # fresh clientside snapshot
+        )
+        assert is_open is False
+        assert store_data["conditions"][0]["duration"] == 60.0
+
+    # A-18 --------------------------------------------------------------------
+    def test_snapshot_none_falls_back_to_dom_durations(self) -> None:
+        """When snapshot_durations is None, dom_durations is used as before."""
+        state = _state(conditions=[_cond("HbO", duration=1.0)])
+        store_data, is_open, *_ = apply_condition_config(
+            n_clicks=1,
+            state=state,
+            dom_durations=[42.0],
+            prev_gc=None,
+            snapshot_durations=None,
+        )
+        assert is_open is False
+        assert store_data["conditions"][0]["duration"] == 42.0
+
+    # A-19 --------------------------------------------------------------------
+    def test_snapshot_empty_list_falls_back_to_dom_durations(self) -> None:
+        """When snapshot_durations is [] (empty), dom_durations is used as fallback."""
+        state = _state(conditions=[_cond("HbO", duration=1.0)])
+        store_data, is_open, *_ = apply_condition_config(
+            n_clicks=1,
+            state=state,
+            dom_durations=[33.0],
+            prev_gc=None,
+            snapshot_durations=[],
+        )
+        assert is_open is False
+        assert store_data["conditions"][0]["duration"] == 33.0
+
+    # A-20 --------------------------------------------------------------------
+    def test_snapshot_multi_condition_each_gets_own_value(self) -> None:
+        """Snapshot with two values maps correctly to two conditions."""
+        state = _state(
+            conditions=[
+                _cond("HbO", duration=1.0),
+                _cond("HbR", duration=1.0),
+            ]
+        )
+        store_data, is_open, *_ = apply_condition_config(
+            n_clicks=1,
+            state=state,
+            dom_durations=[0.1, 0.1],       # stale server-side values
+            prev_gc=None,
+            snapshot_durations=[30.0, 45.0], # fresh snapshot
+        )
+        assert is_open is False
+        durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
+        assert durations["HbO"] == 30.0
+        assert durations["HbR"] == 45.0
 
 
 # ---------------------------------------------------------------------------
