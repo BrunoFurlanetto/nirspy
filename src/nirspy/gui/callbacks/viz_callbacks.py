@@ -93,6 +93,15 @@ def _find_sci_ch_names(results: list[Any]) -> list[str] | None:
     return None
 
 
+def _find_skipped_conditions(results: list[Any]) -> list[str]:
+    """Extract skipped conditions from BlockAverage metadata."""
+    for r in reversed(results):
+        skipped = r.metadata.get("skipped_conditions")
+        if skipped:
+            return list(skipped)
+    return []
+
+
 def _find_glm_result(results: list[Any]) -> GLMResult | None:
     """Find the most recent GLMResult in the execution chain."""
     for r in reversed(results):
@@ -192,12 +201,14 @@ def update_hrf(
     if results is None:
         return render_hrf_plot(None)
     evoked_dict = _find_evoked_dict(results)
+    skipped = _find_skipped_conditions(results)
     return render_hrf_plot(
         evoked_dict,
         selected_conditions,
         discard_toggle=bool(discard_toggle),
         discard_tmin=discard_tmin,
         discard_tmax=discard_tmax,
+        skipped_conditions=skipped,
     )
 
 

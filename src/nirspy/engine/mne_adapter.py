@@ -675,6 +675,37 @@ class MNEAdapter:
                     bl_tmin, bl_tmax = w.baseline_tmin, w.baseline_tmax
                 else:
                     tmin, tmax, bl_tmin, bl_tmax = default_window
+
+                # Clamp tmin/tmax to recording bounds to avoid TOO_SHORT drops.
+                recording_end = raw.times[-1]
+                sfreq = raw.info["sfreq"]
+                effective_tmax = tmax
+                effective_tmin = tmin
+                for ev in cond_events:
+                    onset_time = ev[0] / sfreq
+                    avail_tmax = recording_end - onset_time
+                    avail_tmin = -onset_time
+                    if effective_tmax > avail_tmax:
+                        effective_tmax = min(effective_tmax, avail_tmax)
+                    if effective_tmin < avail_tmin:
+                        effective_tmin = max(effective_tmin, avail_tmin)
+
+                if effective_tmax < tmax:
+                    logger.warning(
+                        "BlockAverage: condition %r tmax=%.2fs would exceed "
+                        "recording end (%.2fs). Clamping tmax to %.2fs.",
+                        cond, tmax, recording_end, effective_tmax,
+                    )
+                    tmax = effective_tmax
+
+                if effective_tmin > tmin:
+                    logger.warning(
+                        "BlockAverage: condition %r tmin=%.2fs would precede "
+                        "recording start. Clamping tmin to %.2fs.",
+                        cond, tmin, effective_tmin,
+                    )
+                    tmin = effective_tmin
+
                 epochs = mne.Epochs(
                     raw,
                     cond_events,
@@ -683,6 +714,7 @@ class MNEAdapter:
                     tmax=tmax,
                     baseline=(bl_tmin, bl_tmax),
                     reject=reject,
+                    reject_by_annotation=False,
                     preload=True,
                     verbose=False,
                 )
@@ -943,14 +975,23 @@ class MNEAdapter:
         result: dict[str, mne.Evoked] = {}
         for condition, cond_epochs in epochs_dict.items():
             if len(cond_epochs) == 0:
+                logger.warning(
+                    "BlockAverage: condition %r had all epochs dropped "
+                    "(possible causes: tmax/tmin window extends beyond "
+                    "recording bounds, BAD annotation overlap, or "
+                    "reject_by_amplitude threshold too strict). "
+                    "Condition excluded from HRF result.",
+                    condition,
+                )
                 continue
             evoked = cond_epochs.average()
             result[condition] = evoked
         if not result:
             raise MNEOperationError(
-                "average_epochs() produced no evoked: all conditions "
-                "had every epoch rejected. Loosen reject_by_amplitude "
-                "or raise amplitude_threshold."
+                "average_epochs() produced no evoked: all conditions had "
+                "every epoch dropped. Check tmax/tmin window vs recording "
+                "length, BAD annotation overlap, or loosen "
+                "reject_by_amplitude / raise amplitude_threshold."
             )
         return result
 

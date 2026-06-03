@@ -241,7 +241,6 @@ def _render_condition_card(
                                     type="text",
                                     value=cond.get("name", ""),
                                     size="sm",
-                                    debounce=True,
                                 ),
                                 # Hidden original_name for tracking identity
                                 dcc.Input(
@@ -266,9 +265,9 @@ def _render_condition_card(
                                     type="number",
                                     value=cond.get("duration", 1.0),
                                     min=0.001,
-                                    step=0.1,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -296,9 +295,9 @@ def _render_condition_card(
                                     },
                                     type="number",
                                     value=cond.get("tmin", -2.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -313,9 +312,9 @@ def _render_condition_card(
                                     },
                                     type="number",
                                     value=cond.get("tmax", 18.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -332,9 +331,9 @@ def _render_condition_card(
                                     },
                                     type="number",
                                     value=cond.get("baseline_tmin", -2.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -351,9 +350,9 @@ def _render_condition_card(
                                     },
                                     type="number",
                                     value=cond.get("baseline_tmax", 0.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -404,7 +403,6 @@ def _render_group_card(
                                     value=group.get("label", ""),
                                     placeholder="e.g. Motor",
                                     size="sm",
-                                    debounce=True,
                                 ),
                             ],
                             width=8,
@@ -450,9 +448,9 @@ def _render_group_card(
                                     },
                                     type="number",
                                     value=group.get("tmin", -2.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -467,9 +465,9 @@ def _render_group_card(
                                     },
                                     type="number",
                                     value=group.get("tmax", 18.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -486,9 +484,9 @@ def _render_group_card(
                                     },
                                     type="number",
                                     value=group.get("baseline_tmin", -2.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -505,9 +503,9 @@ def _render_group_card(
                                     },
                                     type="number",
                                     value=group.get("baseline_tmax", 0.0),
-                                    step=0.5,
-                                    size="sm",
+                                    step="any",
                                     debounce=True,
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -637,36 +635,36 @@ def render_condition_config_modal() -> dbc.Modal:
     Output("condition-config-conditions-container", "children"),
     Output("condition-config-groups-container", "children"),
     Output("condition-config-modal", "is_open"),
-    Output("condition-config-state", "data"),
-    Input("condition-config-state", "data"),
+    Input("condition-modal-open-trigger", "data"),
+    State("condition-config-state", "data"),
     prevent_initial_call=True,
 )
 def _populate_modal(
+    trigger: Any,
     state: dict[str, Any] | None,
-) -> tuple[Any, Any, Any, Any]:
-    """Re-render the modal content when condition-config-state changes externally.
+) -> tuple[Any, Any, Any]:
+    """Re-render the modal content when the open-trigger store fires.
 
-    This callback is triggered when the state store is written from outside
-    (e.g. after a SNIRF file is loaded). It renders the condition cards and
-    group cards and opens the modal.
+    This callback is triggered by ``condition-modal-open-trigger`` — a
+    dedicated store written by callers instead of mutating
+    ``condition-config-state`` directly.  Decoupling the trigger from the
+    shared state store prevents Dash from serialising this callback with
+    ``_sync_condition_inputs`` (which also outputs ``condition-config-state``),
+    eliminating the keystroke race condition where typed values were lost
+    while ``_populate_modal`` was running on the server.
     """
-    if not state:
-        return no_update, no_update, no_update, no_update
+    if not trigger:
+        return no_update, no_update, no_update
 
-    # Only open when explicitly requested
-    if not state.get("_open", False):
-        return no_update, no_update, no_update, no_update
-
-    conditions: list[dict[str, Any]] = state.get("conditions", [])
-    groups: list[dict[str, Any]] = state.get("groups", [])
+    conditions: list[dict[str, Any]] = (state or {}).get("conditions", [])
+    groups: list[dict[str, Any]] = (state or {}).get("groups", [])
     available_names = [c.get("name", "") for c in conditions]
+
 
     cond_cards = _render_conditions_section(conditions)
     group_cards = _render_groups_section(groups, available_names)
 
-    # Clear the _open flag to prevent re-triggering
-    new_state = {**state, "_open": False}
-    return cond_cards, group_cards, True, new_state
+    return cond_cards, group_cards, True
 
 
 @callback(
@@ -761,6 +759,7 @@ def _sync_condition_inputs(  # noqa: PLR0913
     """Sync all per-condition inputs back into condition-config-state."""
     s: dict[str, Any] = state or {"conditions": [], "groups": []}
     existing: list[dict[str, Any]] = list(s.get("conditions", []))
+
 
     n = max(len(names), len(existing))
     updated: list[dict[str, Any]] = []

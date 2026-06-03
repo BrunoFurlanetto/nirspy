@@ -340,6 +340,11 @@ def create_layout() -> dbc.Container:
                 id="condition-config-state",
                 data={"conditions": [], "groups": [], "_open": False},
             ),
+            # Trigger store for opening the condition config modal (T-042).
+            # Written by callers instead of setting _open=True in condition-config-state,
+            # so that _populate_modal does not share an output with _sync_condition_inputs
+            # and the two callbacks are no longer serialised by Dash.
+            dcc.Store(id="condition-modal-open-trigger", data=None),
         ]
     )
 

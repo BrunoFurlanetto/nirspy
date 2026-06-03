@@ -6,6 +6,7 @@ wrapping mne_nirs.statistics.run_glm via MNEAdapter.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
@@ -20,6 +21,8 @@ from nirspy.engine.mne_adapter import MNEAdapter
 # ---------------------------------------------------------------------------
 # GLM Block
 # ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
 
 VALID_DRIFT_MODELS = ("cosine", "polynomial")
 VALID_HRF_MODELS = (

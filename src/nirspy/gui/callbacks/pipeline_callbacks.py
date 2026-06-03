@@ -8,6 +8,7 @@ is the single source of truth.
 from __future__ import annotations
 
 import dataclasses
+import logging
 import uuid
 from typing import Any
 
@@ -17,6 +18,8 @@ from nirspy.blocks import registry
 from nirspy.domain.block import BlockSpec
 from nirspy.gui.components.param_editor import render_param_editor
 from nirspy.gui.components.pipeline_view import render_pipeline_view
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Condition-config modal callbacks (T-042j, T-042k)
@@ -28,23 +31,35 @@ from nirspy.gui.components.pipeline_view import render_pipeline_view
     Output("condition-config-modal", "is_open", allow_duplicate=True),
     Output("condition-config-warning", "children", allow_duplicate=True),
     Output("condition-config-warning", "style", allow_duplicate=True),
+    Output("condition-config-state", "data", allow_duplicate=True),
     Input("condition-config-apply-btn", "n_clicks"),
     State("condition-config-state", "data"),
+    State("global-conditions-store", "data"),
     prevent_initial_call=True,
 )
 def apply_condition_config(
     n_clicks: int | None,
     state: dict[str, Any] | None,
-) -> tuple[Any, Any, Any, Any]:
+    prev_gc: dict[str, Any] | None,
+) -> tuple[Any, Any, Any, Any, Any]:
     """Build GlobalConditions from modal state and persist to store.
 
     Validates the modal state, constructs a :class:`GlobalConditions` object,
     serialises it via ``global_conditions_to_dict``, and writes it to the
     ``global-conditions-store``.  Closes the modal on success; shows an
     inline warning on validation error.
+
+    With ``debounce=True`` on all number inputs, values are sent to the server
+    on blur (field loses focus) or Enter — before Apply is clicked. This means
+    ``condition-config-state`` always holds the correct values by the time Apply
+    fires, so no clientside snapshot is needed.
+
+    Duration fallback order:
+    1. ``state`` — last value synced from the debounced inputs (authoritative).
+    2. ``prev_gc`` store — previously applied value for this condition.
     """
     if not n_clicks or not state:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     from nirspy.domain.conditions import (  # noqa: I001
         ConditionConfig,
@@ -56,9 +71,15 @@ def apply_condition_config(
     raw_conditions: list[dict[str, Any]] = state.get("conditions", [])
     raw_groups: list[dict[str, Any]] = state.get("groups", [])
 
+    # Build lookup of previous GC durations as last-resort fallback
+    _prev_dur: dict[str, float] = {}
+    if prev_gc:
+        for _c in prev_gc.get("conditions") or []:
+            _prev_dur[_c.get("original_name", "")] = float(_c.get("duration", 1.0))
+
     # Build ConditionConfig list
     condition_configs: list[ConditionConfig] = []
-    for cond in raw_conditions:
+    for _raw_idx, cond in enumerate(raw_conditions):
         orig = cond.get("original_name") or cond.get("name", "")
         name = (cond.get("name") or orig).strip()
         if not name:
@@ -69,7 +90,14 @@ def apply_condition_config(
             tuple(selected_occs) if len(selected_occs) < len(occs) else None
         )
         try:
-            dur = float(cond.get("duration", 1.0))
+            state_dur = cond.get("duration")
+            if state_dur is not None:
+                try:
+                    dur = float(state_dur)
+                except (TypeError, ValueError):
+                    dur = _prev_dur.get(orig, 1.0)
+            else:
+                dur = _prev_dur.get(orig, 1.0)
             tmin = float(cond.get("tmin", -2.0))
             tmax = float(cond.get("tmax", 18.0))
             btmin = float(cond.get("baseline_tmin", -2.0))
@@ -95,6 +123,7 @@ def apply_condition_config(
                 True,  # keep modal open
                 f"Validation error in condition '{name}': {exc}",
                 {"display": "block", "color": "red"},
+                no_update,
             )
 
     if not condition_configs:
@@ -103,6 +132,7 @@ def apply_condition_config(
             True,
             "At least one condition must be configured.",
             {"display": "block", "color": "red"},
+            no_update,
         )
 
     # Build ConditionGroup list (optional)
@@ -131,6 +161,7 @@ def apply_condition_config(
                 True,
                 f"Validation error in group '{label}': {exc}",
                 {"display": "block", "color": "red"},
+                no_update,
             )
 
     try:
@@ -144,10 +175,35 @@ def apply_condition_config(
             True,
             f"Validation error: {exc}",
             {"display": "block", "color": "red"},
+            no_update,
         )
 
     serialised = global_conditions_to_dict(gc)
-    return serialised, False, "", {"display": "none"}
+
+    # Build updated condition-config-state to keep state in sync with store
+    occ_lookup: dict[str, list[Any]] = {
+        c.get("original_name", ""): c.get("occurrences", [])
+        for c in (state or {}).get("conditions", [])
+    }
+    synced_conditions = [
+        {
+            "name": cc.name,
+            "original_name": cc.original_name,
+            "duration": cc.duration,
+            "tmin": cc.tmin,
+            "tmax": cc.tmax,
+            "baseline_tmin": cc.baseline_tmin,
+            "baseline_tmax": cc.baseline_tmax,
+            "occurrences": occ_lookup.get(cc.original_name, []),
+        }
+        for cc in condition_configs
+    ]
+    synced_state: dict[str, Any] = {
+        **(state or {}),
+        "conditions": synced_conditions,
+        "_open": False,
+    }
+    return serialised, False, "", {"display": "none"}, synced_state
 
 
 @callback(
@@ -407,8 +463,8 @@ def render_params(
 
 
 @callback(
-    Output("condition-config-modal", "is_open", allow_duplicate=True),
     Output("condition-config-state", "data", allow_duplicate=True),
+    Output("condition-modal-open-trigger", "data", allow_duplicate=True),
     Input("btn-edit-conditions", "n_clicks"),
     State("condition-config-state", "data"),
     State("global-conditions-store", "data"),
@@ -419,12 +475,53 @@ def open_condition_modal_from_button(
     state: dict[str, Any] | None,
     global_conditions: dict[str, Any] | None,
 ) -> tuple[Any, Any]:
-    """Re-open the condition config modal when the Edit Conditions button is clicked."""
+    """Re-open the condition config modal, restoring last-applied values.
+
+    Writes the restored state to ``condition-config-state`` and fires the
+    dedicated ``condition-modal-open-trigger`` store.  ``_populate_modal``
+    listens on the trigger rather than on the state store directly, so it is
+    not serialised with ``_sync_condition_inputs`` by Dash — eliminating the
+    keystroke race condition.
+    """
     if not n_clicks or not global_conditions:
         return no_update, no_update
+
+
+    # occurrences only live in condition-config-state (not serialised to global store)
+    occ_by_orig: dict[str, list[Any]] = {
+        c.get("original_name", ""): c.get("occurrences", [])
+        for c in (state or {}).get("conditions", [])
+    }
+
+    # Rebuild conditions from global-conditions-store as source of truth
+    gc_conditions: list[dict[str, Any]] = global_conditions.get("conditions") or []
+    restored: list[dict[str, Any]] = []
+    for gc_cond in gc_conditions:
+        orig = gc_cond.get("original_name", "")
+        restored.append({
+            "name": gc_cond["name"],
+            "original_name": orig,
+            "duration": gc_cond["duration"],
+            "tmin": gc_cond["tmin"],
+            "tmax": gc_cond["tmax"],
+            "baseline_tmin": gc_cond["baseline_tmin"],
+            "baseline_tmax": gc_cond["baseline_tmax"],
+            "occurrences": occ_by_orig.get(orig, []),
+        })
+
+
     new_state: dict[str, Any] = dict(state) if state else {}
-    new_state["_open"] = True
-    return no_update, new_state
+    new_state["conditions"] = restored
+
+    gc_groups = global_conditions.get("groups")
+    if gc_groups is not None:
+        new_state["groups"] = gc_groups
+
+    # Fire the dedicated open trigger instead of setting _open=True in state.
+    # This keeps _populate_modal's Input separate from condition-config-state,
+    # so Dash does not serialise it with _sync_condition_inputs.
+    open_trigger = {"ts": n_clicks}
+    return new_state, open_trigger
 
 
 @callback(

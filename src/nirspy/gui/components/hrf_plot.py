@@ -29,6 +29,7 @@ def render_hrf_plot(
     discard_toggle: bool = False,
     discard_tmin: float | None = None,
     discard_tmax: float | None = None,
+    skipped_conditions: list[str] | None = None,
 ) -> html.Div:
     """Render HRF waveforms (HbO red, HbR blue) per condition.
 
@@ -176,13 +177,24 @@ def render_hrf_plot(
         template="plotly_white",
     )
 
-    return html.Div(
-        dcc.Graph(
-            id="hrf-graph",
-            figure=fig,
-        ),
-        id="hrf-plot-content",
-    )
+    children: list[Any] = []
+    if skipped_conditions:
+        names = ", ".join(f'"{c}"' for c in skipped_conditions)
+        children.append(
+            html.Div(
+                html.P(
+                    f"Warning: condition(s) {names} had all epochs dropped "
+                    "and are not shown. Check tmax/tmin window vs recording "
+                    "length, BAD annotation overlap, or reject_by_amplitude "
+                    "threshold.",
+                    className="mb-0",
+                ),
+                className="alert alert-warning py-2 px-3 mb-2",
+            )
+        )
+    children.append(dcc.Graph(id="hrf-graph", figure=fig))
+
+    return html.Div(children, id="hrf-plot-content")
 
 
 def _rgba(hex_color: str, alpha: float) -> str:

@@ -6,10 +6,38 @@ callbacks, and returns a ready-to-run app instance.
 
 from __future__ import annotations
 
+import logging
+
 import dash
 import dash_bootstrap_components as dbc
 
 from nirspy.gui.layouts import create_layout
+
+# ---------------------------------------------------------------------------
+# Debug logging toggle — set to True to see condition-modal trace in the
+# terminal while diagnosing the duration-persistence bug (T-042).
+# ---------------------------------------------------------------------------
+_CONDITION_DEBUG_LOGGING = True
+
+_CONDITION_DEBUG_LOGGERS = (
+    "nirspy.gui.callbacks.pipeline_callbacks",
+    "nirspy.gui.callbacks.execution_callbacks",
+    "nirspy.gui.components.condition_config_modal",
+)
+
+
+def enable_condition_debug_logging() -> None:
+    """Configure DEBUG-level logging for condition-modal callbacks."""
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s  %(name)s  %(levelname)s  %(message)s")
+    handler.setFormatter(fmt)
+    for name in _CONDITION_DEBUG_LOGGERS:
+        log = logging.getLogger(name)
+        log.setLevel(logging.DEBUG)
+        if not log.handlers:
+            log.addHandler(handler)
+        log.propagate = False
 
 
 def create_app(*, debug: bool = False) -> dash.Dash:
@@ -34,6 +62,9 @@ def create_app(*, debug: bool = False) -> dash.Dash:
     )
 
     app.layout = create_layout()
+
+    if _CONDITION_DEBUG_LOGGING:
+        enable_condition_debug_logging()
 
     # Import and register callbacks (side-effect import pattern used by Dash)
     from nirspy.gui.callbacks import converter_callbacks as _cv  # noqa: F401
