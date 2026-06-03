@@ -345,8 +345,6 @@ def create_layout() -> dbc.Container:
             # so that _populate_modal does not share an output with _sync_condition_inputs
             # and the two callbacks are no longer serialised by Dash.
             dcc.Store(id="condition-modal-open-trigger", data=None),
-            # Snapshot of duration DOM values captured clientside on Apply click (T-042)
-            dcc.Store(id="condition-apply-snapshot", data=None),
         ]
     )
 

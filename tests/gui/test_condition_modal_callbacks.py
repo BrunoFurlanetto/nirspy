@@ -1,8 +1,8 @@
 """Regression tests for condition-config modal callbacks (T-042).
 
 Covers:
-- apply_condition_config: duration persistence from DOM inputs, fallback chain
-  (DOM → prev_gc_store → state), validation errors, multi-condition, groups.
+- apply_condition_config: duration persistence from state (debounced inputs),
+  fallback to prev_gc_store, validation errors, multi-condition, groups.
 - open_condition_modal_from_button: restore last-applied values from
   global-conditions-store, occurrences preservation, groups restoration.
 - cancel_condition_config: closes modal, no_update on n_clicks=None.
@@ -101,18 +101,22 @@ def _gc_cond(
 
 
 class TestApplyConditionConfig:
-    """Tests for apply_condition_config callback."""
+    """Tests for apply_condition_config callback.
+
+    With debounce=True on all number inputs, values arrive at the server on
+    blur/Enter.  By the time the user clicks Apply, condition-config-state
+    already holds the correct values.  The callback reads duration exclusively
+    from state — no DOM State or clientside snapshot needed.
+    """
 
     # A-01 --------------------------------------------------------------------
-    def test_dom_duration_persisted_to_store(self) -> None:
-        """DOM value [7.5] → store condition duration == 7.5."""
-        state = _state(conditions=[_cond("HbO", duration=1.0)])
+    def test_state_duration_persisted_to_store(self) -> None:
+        """State value 7.5 → store condition duration == 7.5."""
+        state = _state(conditions=[_cond("HbO", duration=7.5)])
         result = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[7.5],
             prev_gc=None,
-            snapshot_durations=None,
         )
         store_data, is_open, warning, warning_style, synced_state = result
         assert store_data is not no_update
@@ -121,46 +125,45 @@ class TestApplyConditionConfig:
 
     # A-02 --------------------------------------------------------------------
     def test_second_apply_overwrites_duration(self) -> None:
-        """Second Apply with dom=[12.0] overwrites previous duration."""
-        state = _state(conditions=[_cond("HbO", duration=7.5)])
+        """Second Apply with state duration 12.0 overwrites previous."""
+        state = _state(conditions=[_cond("HbO", duration=12.0)])
         result = apply_condition_config(
             n_clicks=2,
             state=state,
-            dom_durations=[12.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         store_data, is_open, *_ = result
         assert store_data["conditions"][0]["duration"] == 12.0
 
     # A-03 --------------------------------------------------------------------
-    def test_fallback_to_prev_gc_when_dom_none(self) -> None:
-        """dom=None → falls back to prev_gc duration (15.0)."""
+    def test_fallback_to_prev_gc_when_state_duration_none(self) -> None:
+        """state duration None → falls back to prev_gc duration (15.0)."""
         prev_gc = _gc_store(conditions=[_gc_cond("HbO", duration=15.0)])
-        state = _state(conditions=[_cond("HbO", duration=1.0)])
+        # Simulate state with None duration (e.g. user cleared the field)
+        cond = _cond("HbO", duration=1.0)
+        cond["duration"] = None  # type: ignore[assignment]
+        state = _state(conditions=[cond])
         result = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[None],
             prev_gc=prev_gc,
-            snapshot_durations=None,
         )
         store_data, is_open, *_ = result
         assert store_data["conditions"][0]["duration"] == 15.0
 
     # A-04 --------------------------------------------------------------------
-    def test_fallback_to_state_when_dom_none_and_prev_gc_none(self) -> None:
-        """dom=None, prev_gc=None → falls back to state duration (10.0)."""
-        state = _state(conditions=[_cond("HbO", duration=10.0)])
+    def test_fallback_to_default_when_state_none_and_prev_gc_none(self) -> None:
+        """state duration None, prev_gc=None → falls back to default 1.0."""
+        cond = _cond("HbO", duration=1.0)
+        cond["duration"] = None  # type: ignore[assignment]
+        state = _state(conditions=[cond])
         result = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[None],
             prev_gc=None,
-            snapshot_durations=None,
         )
         store_data, is_open, *_ = result
-        assert store_data["conditions"][0]["duration"] == 10.0
+        assert store_data["conditions"][0]["duration"] == 1.0
 
     # A-05 --------------------------------------------------------------------
     def test_modal_closes_on_success(self) -> None:
@@ -169,9 +172,7 @@ class TestApplyConditionConfig:
         _, is_open, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is False
 
@@ -182,9 +183,7 @@ class TestApplyConditionConfig:
         store_data, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert store_data["conditions"][0]["tmin"] == -3.0
         assert store_data["conditions"][0]["tmax"] == 20.0
@@ -198,9 +197,7 @@ class TestApplyConditionConfig:
         store_data, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert store_data["conditions"][0]["baseline_tmin"] == -1.5
         assert store_data["conditions"][0]["baseline_tmax"] == 0.5
@@ -212,9 +209,7 @@ class TestApplyConditionConfig:
         _, is_open, warning, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is True
         assert warning  # non-empty error message
@@ -222,13 +217,11 @@ class TestApplyConditionConfig:
     # A-09 --------------------------------------------------------------------
     def test_modal_stays_open_when_duration_zero(self) -> None:
         """duration == 0.0 is invalid → modal stays open."""
-        state = _state(conditions=[_cond("HbO", duration=5.0)])
+        state = _state(conditions=[_cond("HbO", duration=0.0)])
         _, is_open, warning, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[0.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is True
         assert warning
@@ -236,13 +229,11 @@ class TestApplyConditionConfig:
     # A-10 --------------------------------------------------------------------
     def test_modal_stays_open_when_duration_negative(self) -> None:
         """duration < 0 is invalid → modal stays open."""
-        state = _state(conditions=[_cond("HbO", duration=5.0)])
+        state = _state(conditions=[_cond("HbO", duration=-1.0)])
         _, is_open, warning, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[-1.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is True
         assert warning
@@ -254,9 +245,7 @@ class TestApplyConditionConfig:
         result = apply_condition_config(
             n_clicks=None,
             state=state,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert all(r is no_update for r in result)
 
@@ -266,9 +255,7 @@ class TestApplyConditionConfig:
         result = apply_condition_config(
             n_clicks=1,
             state=None,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert all(r is no_update for r in result)
 
@@ -279,28 +266,24 @@ class TestApplyConditionConfig:
         _, is_open, warning, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is True
         assert "least one condition" in warning.lower()
 
     # A-14 --------------------------------------------------------------------
-    def test_multiple_conditions_each_gets_own_dom_duration(self) -> None:
-        """Two conditions [7.0, 9.0] → each stored with its own duration."""
+    def test_multiple_conditions_each_gets_own_duration(self) -> None:
+        """Two conditions with distinct durations → each stored correctly."""
         state = _state(
             conditions=[
-                _cond("HbO", duration=1.0),
-                _cond("HbR", duration=1.0),
+                _cond("HbO", duration=7.0),
+                _cond("HbR", duration=9.0),
             ]
         )
         store_data, is_open, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[7.0, 9.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is False
         durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
@@ -308,30 +291,23 @@ class TestApplyConditionConfig:
         assert durations["HbR"] == 9.0
 
     # A-15 --------------------------------------------------------------------
-    def test_dom_duration_index_aligned_with_raw_conditions(self) -> None:
-        """dom_durations index must match raw_conditions order, not condition_configs order.
+    def test_condition_index_alignment_with_skipped_empty_name(self) -> None:
+        """Condition at index 1 ('HbO') must receive its own duration even when
+        index 0 is skipped due to empty name.
 
-        Regression for the bug where _cond_idx = len(condition_configs) was used
-        instead of the raw index — causing wrong DOM value to be picked when a
-        preceding condition is skipped (empty name). Also covers the case where
-        the first condition ('M') always received dom_dur=None because the index
-        counter was based on the result list rather than the input list.
+        Regression for the bug where the result list index was used instead
+        of the raw_conditions index when reading effective_durations.
         """
-        # Condition at index 0 has an empty name and will be skipped.
-        # Condition at index 1 ('HbO') should receive dom_durations[1] = 60.0,
-        # NOT dom_durations[0] = None.
         state = _state(
             conditions=[
-                _cond("", duration=1.0),   # index 0 — will be skipped (empty name)
-                _cond("HbO", duration=1.0),  # index 1 — must get dom_durations[1]
+                _cond("", duration=1.0),        # index 0 — skipped (empty name)
+                _cond("HbO", duration=60.0),    # index 1 — must keep its duration
             ]
         )
         store_data, is_open, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[None, 60.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is False
         durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
@@ -355,82 +331,35 @@ class TestApplyConditionConfig:
         store_data, is_open, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[5.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
         assert is_open is False
         assert "groups" in store_data
         assert store_data["groups"][0]["label"] == "All"
 
     # A-17 --------------------------------------------------------------------
-    def test_snapshot_takes_priority_over_dom_state(self) -> None:
-        """snapshot_durations beats dom_durations when both are present.
-
-        Regression for the Dash race condition where the server-side State
-        of dcc.Input may lag behind the actual DOM value typed by the user.
-        The clientside snapshot is captured synchronously at click time and
-        must take precedence over the stale server-side State.
-        """
-        state = _state(conditions=[_cond("HbO", duration=1.0)])
+    def test_large_duration_persisted(self) -> None:
+        """Duration value 60.0 (typical block duration) persists correctly."""
+        state = _state(conditions=[_cond("HbO", duration=60.0)])
         store_data, is_open, *_ = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[0.1],       # stale server-side State (lag from race condition)
             prev_gc=None,
-            snapshot_durations=[60.0], # fresh clientside snapshot
         )
         assert is_open is False
         assert store_data["conditions"][0]["duration"] == 60.0
 
     # A-18 --------------------------------------------------------------------
-    def test_snapshot_none_falls_back_to_dom_durations(self) -> None:
-        """When snapshot_durations is None, dom_durations is used as before."""
-        state = _state(conditions=[_cond("HbO", duration=1.0)])
-        store_data, is_open, *_ = apply_condition_config(
+    def test_synced_state_returned_matches_store(self) -> None:
+        """synced_state returned as 5th output matches the store data."""
+        state = _state(conditions=[_cond("HbO", duration=42.0)])
+        store_data, _, _, _, synced_state = apply_condition_config(
             n_clicks=1,
             state=state,
-            dom_durations=[42.0],
             prev_gc=None,
-            snapshot_durations=None,
         )
-        assert is_open is False
-        assert store_data["conditions"][0]["duration"] == 42.0
-
-    # A-19 --------------------------------------------------------------------
-    def test_snapshot_empty_list_falls_back_to_dom_durations(self) -> None:
-        """When snapshot_durations is [] (empty), dom_durations is used as fallback."""
-        state = _state(conditions=[_cond("HbO", duration=1.0)])
-        store_data, is_open, *_ = apply_condition_config(
-            n_clicks=1,
-            state=state,
-            dom_durations=[33.0],
-            prev_gc=None,
-            snapshot_durations=[],
-        )
-        assert is_open is False
-        assert store_data["conditions"][0]["duration"] == 33.0
-
-    # A-20 --------------------------------------------------------------------
-    def test_snapshot_multi_condition_each_gets_own_value(self) -> None:
-        """Snapshot with two values maps correctly to two conditions."""
-        state = _state(
-            conditions=[
-                _cond("HbO", duration=1.0),
-                _cond("HbR", duration=1.0),
-            ]
-        )
-        store_data, is_open, *_ = apply_condition_config(
-            n_clicks=1,
-            state=state,
-            dom_durations=[0.1, 0.1],       # stale server-side values
-            prev_gc=None,
-            snapshot_durations=[30.0, 45.0], # fresh snapshot
-        )
-        assert is_open is False
-        durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
-        assert durations["HbO"] == 30.0
-        assert durations["HbR"] == 45.0
+        synced = {c["original_name"]: c["duration"] for c in synced_state["conditions"]}
+        assert synced["HbO"] == 42.0
 
 
 # ---------------------------------------------------------------------------

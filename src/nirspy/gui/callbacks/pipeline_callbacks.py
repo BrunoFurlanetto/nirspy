@@ -34,17 +34,13 @@ from nirspy.gui.components.pipeline_view import render_pipeline_view
     Output("condition-config-state", "data", allow_duplicate=True),
     Input("condition-config-apply-btn", "n_clicks"),
     State("condition-config-state", "data"),
-    State({"type": "cond-cfg-duration", "cond_idx": ALL}, "value"),
     State("global-conditions-store", "data"),
-    State("condition-apply-snapshot", "data"),
     prevent_initial_call=True,
 )
 def apply_condition_config(
     n_clicks: int | None,
     state: dict[str, Any] | None,
-    dom_durations: list[float | None],
     prev_gc: dict[str, Any] | None,
-    snapshot_durations: list[float | None] | None,
 ) -> tuple[Any, Any, Any, Any, Any]:
     """Build GlobalConditions from modal state and persist to store.
 
@@ -53,14 +49,14 @@ def apply_condition_config(
     ``global-conditions-store``.  Closes the modal on success; shows an
     inline warning on validation error.
 
-    Duration resolution order (highest priority first):
-    1. ``snapshot_durations`` — captured clientside synchronously on click,
-       avoiding Dash race conditions where the server-side ``State`` for
-       ``dcc.Input`` may not reflect the most recently typed value.
-    2. ``dom_durations`` — server-side ``State`` of the DOM inputs (fallback
-       when snapshot is unavailable, e.g. in direct unit tests).
-    3. ``prev_gc`` store — previously applied value for this condition.
-    4. ``state`` — the condition's last known value in the modal state store.
+    With ``debounce=True`` on all number inputs, values are sent to the server
+    on blur (field loses focus) or Enter — before Apply is clicked. This means
+    ``condition-config-state`` always holds the correct values by the time Apply
+    fires, so no clientside snapshot is needed.
+
+    Duration fallback order:
+    1. ``state`` — last value synced from the debounced inputs (authoritative).
+    2. ``prev_gc`` store — previously applied value for this condition.
     """
     if not n_clicks or not state:
         return no_update, no_update, no_update, no_update, no_update
@@ -75,25 +71,7 @@ def apply_condition_config(
     raw_conditions: list[dict[str, Any]] = state.get("conditions", [])
     raw_groups: list[dict[str, Any]] = state.get("groups", [])
 
-    # Resolve the effective durations list.
-    # Prefer the clientside snapshot (synchronous DOM read) over the server-side
-    # State, which may be stale due to Dash's async round-trip race condition.
-    effective_durations: list[float | None]
-    if snapshot_durations is not None and len(snapshot_durations) > 0:
-        effective_durations = list(snapshot_durations)
-        logger.debug(
-            "[apply_condition_config] using clientside snapshot durations: %s",
-            effective_durations,
-        )
-    else:
-        effective_durations = list(dom_durations)
-        logger.debug(
-            "[apply_condition_config] snapshot unavailable — using server-side "
-            "dom_durations: %s",
-            effective_durations,
-        )
-
-    # Build lookup of previous GC durations as fallback when DOM field is empty
+    # Build lookup of previous GC durations as last-resort fallback
     _prev_dur: dict[str, float] = {}
     if prev_gc:
         for _c in prev_gc.get("conditions") or []:
@@ -112,34 +90,25 @@ def apply_condition_config(
             tuple(selected_occs) if len(selected_occs) < len(occs) else None
         )
         try:
-            # Use effective_durations (snapshot-first) indexed by rendered card
-            # position, which matches raw_conditions order.
-            dom_dur = (
-                effective_durations[raw_idx]
-                if raw_idx < len(effective_durations)
-                else None
-            )
+            state_dur = cond.get("duration")
             logger.debug(
-                "[apply_condition_config] cond=%r idx=%d effective_dur=%r "
-                "prev_gc_dur=%r state_dur=%r",
+                "[apply_condition_config] cond=%r idx=%d state_dur=%r prev_gc_dur=%r",
                 orig,
                 raw_idx,
-                dom_dur,
+                state_dur,
                 _prev_dur.get(orig),
-                cond.get("duration"),
             )
-            if dom_dur is not None:
+            if state_dur is not None:
                 try:
-                    dur = float(dom_dur)
+                    dur = float(state_dur)
                 except (TypeError, ValueError):
-                    dur = _prev_dur.get(orig, float(cond.get("duration", 1.0)))
+                    dur = _prev_dur.get(orig, 1.0)
             else:
-                dur = _prev_dur.get(orig, float(cond.get("duration", 1.0)))
+                dur = _prev_dur.get(orig, 1.0)
             logger.debug(
-                "[apply_condition_config] cond=%r → dur_final=%r (source=%s)",
+                "[apply_condition_config] cond=%r → dur_final=%r",
                 orig,
                 dur,
-                "dom" if dom_dur is not None else ("prev_gc" if orig in _prev_dur else "state"),
             )
             tmin = float(cond.get("tmin", -2.0))
             tmax = float(cond.get("tmax", 18.0))

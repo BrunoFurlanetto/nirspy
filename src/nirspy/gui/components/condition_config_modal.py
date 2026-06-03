@@ -31,7 +31,7 @@ from collections import defaultdict
 from typing import Any
 
 import dash_bootstrap_components as dbc
-from dash import ALL, ClientsideFunction, Input, Output, State, callback, clientside_callback, dcc, html, no_update
+from dash import ALL, Input, Output, State, callback, dcc, html, no_update
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +266,7 @@ def _render_condition_card(
                                     value=cond.get("duration", 1.0),
                                     min=0.001,
                                     step=0.1,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -296,7 +296,7 @@ def _render_condition_card(
                                     type="number",
                                     value=cond.get("tmin", -2.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -313,7 +313,7 @@ def _render_condition_card(
                                     type="number",
                                     value=cond.get("tmax", 18.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -332,7 +332,7 @@ def _render_condition_card(
                                     type="number",
                                     value=cond.get("baseline_tmin", -2.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -351,7 +351,7 @@ def _render_condition_card(
                                     type="number",
                                     value=cond.get("baseline_tmax", 0.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -449,7 +449,7 @@ def _render_group_card(
                                     type="number",
                                     value=group.get("tmin", -2.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -466,7 +466,7 @@ def _render_group_card(
                                     type="number",
                                     value=group.get("tmax", 18.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -485,7 +485,7 @@ def _render_group_card(
                                     type="number",
                                     value=group.get("baseline_tmin", -2.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -504,7 +504,7 @@ def _render_group_card(
                                     type="number",
                                     value=group.get("baseline_tmax", 0.0),
                                     step=0.5,
-                                    debounce=False,
+                                    debounce=True,
                                     className="form-control form-control-sm",
                                 ),
                             ],
@@ -624,63 +624,6 @@ def render_condition_config_modal() -> dbc.Modal:
         backdrop="static",
         keyboard=False,
     )
-
-
-# ---------------------------------------------------------------------------
-# Clientside callback — snapshot duration DOM values on Apply click
-# ---------------------------------------------------------------------------
-# This runs in the browser synchronously before the server-side Apply callback,
-# capturing the exact values in the DOM at the moment the user clicks Apply.
-# This avoids a Dash race condition where _sync_condition_inputs may not have
-# propagated the most recently typed value before Apply fires.
-#
-# We read values directly from the DOM via document.querySelectorAll instead
-# of using State({...}, "value"), because Dash's State only returns the last
-# server-acknowledged value — not the current DOM value typed by the user.
-#
-# Dash serialises pattern-matching IDs in alphabetical key order, so the DOM
-# id attribute for {"type":"cond-cfg-duration","cond_idx":N} becomes the JSON
-# string {"cond_idx":N,"type":"cond-cfg-duration"}.  We select all matching
-# inputs with [id*="cond-cfg-duration"] and sort them by cond_idx to preserve
-# the correct order before returning the values array.
-clientside_callback(
-    """
-    function(n_clicks) {
-        if (!n_clicks) { return window.dash_clientside.no_update; }
-
-        // Select all dcc.Input elements whose id JSON contains "cond-cfg-duration".
-        // Dash serialises pattern-matching IDs as JSON with alphabetical keys, e.g.
-        // {"cond_idx":0,"type":"cond-cfg-duration"}.
-        // dcc.Input in Dash 2.x wraps the <input> in a div that carries the JSON id;
-        // the <input> itself does not have the id attribute, so we must query the
-        // wrapper div and then find the child <input>.
-        var wrappers = document.querySelectorAll('[id*="cond-cfg-duration"]');
-        if (!wrappers || wrappers.length === 0) {
-            return window.dash_clientside.no_update;
-        }
-
-        // Parse cond_idx from each wrapper's id so we can sort correctly.
-        var items = [];
-        wrappers.forEach(function(wrapper) {
-            var parsed = null;
-            try { parsed = JSON.parse(wrapper.id); } catch(e) { return; }
-            if (parsed && parsed["type"] === "cond-cfg-duration") {
-                // The actual <input> is a descendant of the wrapper div.
-                var inputEl = wrapper.querySelector('input') || wrapper;
-                var v = parseFloat(inputEl.value);
-                items.push({ idx: parsed["cond_idx"], value: isNaN(v) ? null : v });
-            }
-        });
-
-        // Sort ascending by cond_idx to match the server-side order.
-        items.sort(function(a, b) { return a.idx - b.idx; });
-        return items.map(function(it) { return it.value; });
-    }
-    """,
-    Output("condition-apply-snapshot", "data"),
-    Input("condition-config-apply-btn", "n_clicks"),
-    prevent_initial_call=True,
-)
 
 
 # ---------------------------------------------------------------------------
