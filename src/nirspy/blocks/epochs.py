@@ -177,6 +177,38 @@ class EpochsExtractionBlock:
             # used directly as epoch condition keys via per_condition_windows/groups.
             eff_event_id = None
 
+        # ---- T-042 debug: log effective condition params ----
+        _src = "global_conditions" if resolved is not None else "local_params"
+        if eff_groups:
+            for _grp in eff_groups:
+                logger.debug(
+                    "EpochsExtractionBlock [T-042] group=%r  tmin=%.3f  tmax=%.3f  "
+                    "conditions=%s  source=%s",
+                    _grp.label,
+                    _grp.tmin,
+                    _grp.tmax,
+                    list(_grp.condition_names),
+                    _src,
+                )
+        elif eff_per_condition_windows:
+            for _cond, _win in eff_per_condition_windows.items():
+                logger.debug(
+                    "EpochsExtractionBlock [T-042] condition=%r  tmin=%.3f  "
+                    "tmax=%.3f  source=%s",
+                    _cond,
+                    _win.tmin,
+                    _win.tmax,
+                    _src,
+                )
+        else:
+            logger.debug(
+                "EpochsExtractionBlock [T-042] using global tmin=%.3f  "
+                "tmax=%.3f  source=%s",
+                self.params.tmin,
+                self.params.tmax,
+                _src,
+            )
+
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
 
         # Apply GlobalConditions annotation filter (T-042) -- MUST happen before

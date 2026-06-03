@@ -354,6 +354,52 @@ class BlockAverageBlock:
         for cond_name, window in eff_per_condition_windows.items():
             _validate_condition_window(cond_name, window)
 
+        # ---- T-042 debug: log effective condition params ----
+        _src = "global_conditions" if resolved is not None else "local_params"
+        if eff_per_condition_groups:
+            for _grp_name, _grp in eff_per_condition_groups.items():
+                logger.debug(
+                    "BlockAverageBlock [T-042] group=%r  conditions=%s  "
+                    "tmin=%.3f  tmax=%.3f  source=%s",
+                    _grp_name,
+                    list(_grp.condition_names),
+                    _grp.tmin,
+                    _grp.tmax,
+                    _src,
+                )
+        elif eff_per_condition_windows:
+            for _cond, _win in eff_per_condition_windows.items():
+                logger.debug(
+                    "BlockAverageBlock [T-042] condition=%r  tmin=%.3f  "
+                    "tmax=%.3f  baseline=[%.3f, %.3f]  source=%s",
+                    _cond,
+                    _win.tmin,
+                    _win.tmax,
+                    _win.baseline_tmin,
+                    _win.baseline_tmax,
+                    _src,
+                )
+        else:
+            logger.debug(
+                "BlockAverageBlock [T-042] pick_conditions=%s  global "
+                "tmin=%.3f  tmax=%.3f  source=%s",
+                eff_pick_conditions,
+                self.params.tmin,
+                self.params.tmax,
+                _src,
+            )
+
+        # Log duration specifically when coming from global_conditions
+        if resolved is not None:
+            for _cond, _cfg in resolved.condition_configs.items():
+                logger.debug(
+                    "BlockAverageBlock [T-042] condition=%r  duration=%.4f s  "
+                    "(stim duration from GlobalConditions — not used by "
+                    "BlockAverage directly, only by GLM)",
+                    _cond,
+                    _cfg.duration,
+                )
+
         raw: mne.io.BaseRaw = next(iter(inputs.values()))
 
         # Apply GlobalConditions annotation filter (T-042) -- MUST happen before

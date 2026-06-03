@@ -6,6 +6,7 @@ wrapping mne_nirs.statistics.run_glm via MNEAdapter.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
@@ -20,6 +21,8 @@ from nirspy.engine.mne_adapter import MNEAdapter
 # ---------------------------------------------------------------------------
 # GLM Block
 # ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
 
 VALID_DRIFT_MODELS = ("cosine", "polynomial")
 VALID_HRF_MODELS = (
@@ -163,6 +166,23 @@ class GLMBlock:
             # event_id is not altered — GLM relies on annotation descriptions
             # and condition_durations handles duration overrides.
             # included_occurrences selection is not supported at GLM level.
+
+        # ---- T-042 debug: log effective condition_durations ----
+        _source = "global_conditions" if resolved is not None else "local_params"
+        if eff_condition_durations:
+            for _cond, _dur in eff_condition_durations.items():
+                logger.debug(
+                    "GLMBlock [T-042] condition=%r  duration=%.4f s  source=%s",
+                    _cond,
+                    _dur,
+                    _source,
+                )
+        else:
+            logger.debug(
+                "GLMBlock [T-042] condition_durations=None (will read from "
+                "raw annotations, fallback 1.0 s)  source=%s",
+                _source,
+            )
 
         # Validate params
         if self.params.drift_model not in VALID_DRIFT_MODELS:
