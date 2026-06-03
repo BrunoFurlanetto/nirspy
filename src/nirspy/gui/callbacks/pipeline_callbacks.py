@@ -72,7 +72,7 @@ def apply_condition_config(
 
     # Build ConditionConfig list
     condition_configs: list[ConditionConfig] = []
-    for cond in raw_conditions:
+    for raw_idx, cond in enumerate(raw_conditions):
         orig = cond.get("original_name") or cond.get("name", "")
         name = (cond.get("name") or orig).strip()
         if not name:
@@ -83,14 +83,16 @@ def apply_condition_config(
             tuple(selected_occs) if len(selected_occs) < len(occs) else None
         )
         try:
-            # Prefer DOM value; fall back to previous GC store, then state
-            _cond_idx = len(condition_configs)
-            dom_dur = dom_durations[_cond_idx] if _cond_idx < len(dom_durations) else None
+            # Prefer DOM value; fall back to previous GC store, then state.
+            # Use raw_idx (position in raw_conditions) because dom_durations is
+            # indexed by rendered card position, which matches raw_conditions
+            # order — NOT the position in the already-built condition_configs list.
+            dom_dur = dom_durations[raw_idx] if raw_idx < len(dom_durations) else None
             logger.debug(
                 "[apply_condition_config] cond=%r idx=%d dom_dur=%r "
                 "prev_gc_dur=%r state_dur=%r",
                 orig,
-                _cond_idx,
+                raw_idx,
                 dom_dur,
                 _prev_dur.get(orig),
                 cond.get("duration"),

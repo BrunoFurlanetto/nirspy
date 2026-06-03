@@ -294,6 +294,35 @@ class TestApplyConditionConfig:
         assert durations["HbR"] == 9.0
 
     # A-15 --------------------------------------------------------------------
+    def test_dom_duration_index_aligned_with_raw_conditions(self) -> None:
+        """dom_durations index must match raw_conditions order, not condition_configs order.
+
+        Regression for the bug where _cond_idx = len(condition_configs) was used
+        instead of the raw index — causing wrong DOM value to be picked when a
+        preceding condition is skipped (empty name). Also covers the case where
+        the first condition ('M') always received dom_dur=None because the index
+        counter was based on the result list rather than the input list.
+        """
+        # Condition at index 0 has an empty name and will be skipped.
+        # Condition at index 1 ('HbO') should receive dom_durations[1] = 60.0,
+        # NOT dom_durations[0] = None.
+        state = _state(
+            conditions=[
+                _cond("", duration=1.0),   # index 0 — will be skipped (empty name)
+                _cond("HbO", duration=1.0),  # index 1 — must get dom_durations[1]
+            ]
+        )
+        store_data, is_open, *_ = apply_condition_config(
+            n_clicks=1,
+            state=state,
+            dom_durations=[None, 60.0],
+            prev_gc=None,
+        )
+        assert is_open is False
+        durations = {c["original_name"]: c["duration"] for c in store_data["conditions"]}
+        assert durations["HbO"] == 60.0
+
+    # A-16 --------------------------------------------------------------------
     def test_groups_preserved_in_apply(self) -> None:
         """Groups defined in state are not lost after Apply."""
         group = {
