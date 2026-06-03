@@ -257,7 +257,7 @@ def _render_condition_card(
                         dbc.Col(
                             [
                                 html.Small("Duration (s)", className="fw-bold d-block"),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-duration",
                                         "cond_idx": cond_idx,
@@ -267,7 +267,7 @@ def _render_condition_card(
                                     min=0.001,
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -288,7 +288,7 @@ def _render_condition_card(
                         dbc.Col(
                             [
                                 html.Small("tmin", className="fw-bold d-block"),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-tmin",
                                         "cond_idx": cond_idx,
@@ -297,7 +297,7 @@ def _render_condition_card(
                                     value=cond.get("tmin", -2.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -305,7 +305,7 @@ def _render_condition_card(
                         dbc.Col(
                             [
                                 html.Small("tmax", className="fw-bold d-block"),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-tmax",
                                         "cond_idx": cond_idx,
@@ -314,7 +314,7 @@ def _render_condition_card(
                                     value=cond.get("tmax", 18.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -324,7 +324,7 @@ def _render_condition_card(
                                 html.Small(
                                     "baseline tmin", className="fw-bold d-block"
                                 ),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-btmin",
                                         "cond_idx": cond_idx,
@@ -333,7 +333,7 @@ def _render_condition_card(
                                     value=cond.get("baseline_tmin", -2.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -343,7 +343,7 @@ def _render_condition_card(
                                 html.Small(
                                     "baseline tmax", className="fw-bold d-block"
                                 ),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-btmax",
                                         "cond_idx": cond_idx,
@@ -352,7 +352,7 @@ def _render_condition_card(
                                     value=cond.get("baseline_tmax", 0.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -441,7 +441,7 @@ def _render_group_card(
                         dbc.Col(
                             [
                                 html.Small("tmin", className="fw-bold d-block"),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-grp-tmin",
                                         "group_idx": group_idx,
@@ -450,7 +450,7 @@ def _render_group_card(
                                     value=group.get("tmin", -2.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -458,7 +458,7 @@ def _render_group_card(
                         dbc.Col(
                             [
                                 html.Small("tmax", className="fw-bold d-block"),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-grp-tmax",
                                         "group_idx": group_idx,
@@ -467,7 +467,7 @@ def _render_group_card(
                                     value=group.get("tmax", 18.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -477,7 +477,7 @@ def _render_group_card(
                                 html.Small(
                                     "baseline tmin", className="fw-bold d-block"
                                 ),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-grp-btmin",
                                         "group_idx": group_idx,
@@ -486,7 +486,7 @@ def _render_group_card(
                                     value=group.get("baseline_tmin", -2.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
@@ -496,7 +496,7 @@ def _render_group_card(
                                 html.Small(
                                     "baseline tmax", className="fw-bold d-block"
                                 ),
-                                dcc.Input(
+                                dbc.Input(
                                     id={
                                         "type": "cond-cfg-grp-btmax",
                                         "group_idx": group_idx,
@@ -505,7 +505,7 @@ def _render_group_card(
                                     value=group.get("baseline_tmax", 0.0),
                                     step="any",
                                     debounce=True,
-                                    className="form-control form-control-sm",
+                                    size="sm",
                                 ),
                             ],
                             width=3,
