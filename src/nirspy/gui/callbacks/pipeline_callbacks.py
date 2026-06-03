@@ -28,16 +28,19 @@ from nirspy.gui.components.pipeline_view import render_pipeline_view
     Output("condition-config-modal", "is_open", allow_duplicate=True),
     Output("condition-config-warning", "children", allow_duplicate=True),
     Output("condition-config-warning", "style", allow_duplicate=True),
+    Output("condition-config-state", "data", allow_duplicate=True),
     Input("condition-config-apply-btn", "n_clicks"),
     State("condition-config-state", "data"),
     State({"type": "cond-cfg-duration", "cond_idx": ALL}, "value"),
+    State("global-conditions-store", "data"),
     prevent_initial_call=True,
 )
 def apply_condition_config(
     n_clicks: int | None,
     state: dict[str, Any] | None,
     dom_durations: list[float | None],
-) -> tuple[Any, Any, Any, Any]:
+    prev_gc: dict[str, Any] | None,
+) -> tuple[Any, Any, Any, Any, Any]:
     """Build GlobalConditions from modal state and persist to store.
 
     Validates the modal state, constructs a :class:`GlobalConditions` object,
@@ -46,7 +49,7 @@ def apply_condition_config(
     inline warning on validation error.
     """
     if not n_clicks or not state:
-        return no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update
 
     from nirspy.domain.conditions import (  # noqa: I001
         ConditionConfig,
@@ -57,6 +60,12 @@ def apply_condition_config(
 
     raw_conditions: list[dict[str, Any]] = state.get("conditions", [])
     raw_groups: list[dict[str, Any]] = state.get("groups", [])
+
+    # Build lookup of previous GC durations as fallback when DOM field is empty
+    _prev_dur: dict[str, float] = {}
+    if prev_gc:
+        for _c in prev_gc.get("conditions") or []:
+            _prev_dur[_c.get("original_name", "")] = float(_c.get("duration", 1.0))
 
     # Build ConditionConfig list
     condition_configs: list[ConditionConfig] = []
@@ -71,16 +80,16 @@ def apply_condition_config(
             tuple(selected_occs) if len(selected_occs) < len(occs) else None
         )
         try:
-            # Use DOM value directly (more reliable than state for number inputs)
+            # Prefer DOM value; fall back to previous GC store, then state
             _cond_idx = len(condition_configs)
             dom_dur = dom_durations[_cond_idx] if _cond_idx < len(dom_durations) else None
             if dom_dur is not None:
                 try:
                     dur = float(dom_dur)
                 except (TypeError, ValueError):
-                    dur = float(cond.get("duration", 1.0))
+                    dur = _prev_dur.get(orig, float(cond.get("duration", 1.0)))
             else:
-                dur = float(cond.get("duration", 1.0))
+                dur = _prev_dur.get(orig, float(cond.get("duration", 1.0)))
             tmin = float(cond.get("tmin", -2.0))
             tmax = float(cond.get("tmax", 18.0))
             btmin = float(cond.get("baseline_tmin", -2.0))
@@ -106,6 +115,7 @@ def apply_condition_config(
                 True,  # keep modal open
                 f"Validation error in condition '{name}': {exc}",
                 {"display": "block", "color": "red"},
+                no_update,
             )
 
     if not condition_configs:
@@ -114,6 +124,7 @@ def apply_condition_config(
             True,
             "At least one condition must be configured.",
             {"display": "block", "color": "red"},
+            no_update,
         )
 
     # Build ConditionGroup list (optional)
@@ -142,6 +153,7 @@ def apply_condition_config(
                 True,
                 f"Validation error in group '{label}': {exc}",
                 {"display": "block", "color": "red"},
+                no_update,
             )
 
     try:
@@ -155,10 +167,35 @@ def apply_condition_config(
             True,
             f"Validation error: {exc}",
             {"display": "block", "color": "red"},
+            no_update,
         )
 
     serialised = global_conditions_to_dict(gc)
-    return serialised, False, "", {"display": "none"}
+
+    # Build updated condition-config-state to keep state in sync with store
+    occ_lookup: dict[str, list[Any]] = {
+        c.get("original_name", ""): c.get("occurrences", [])
+        for c in (state or {}).get("conditions", [])
+    }
+    synced_conditions = [
+        {
+            "name": cc.name,
+            "original_name": cc.original_name,
+            "duration": cc.duration,
+            "tmin": cc.tmin,
+            "tmax": cc.tmax,
+            "baseline_tmin": cc.baseline_tmin,
+            "baseline_tmax": cc.baseline_tmax,
+            "occurrences": occ_lookup.get(cc.original_name, []),
+        }
+        for cc in condition_configs
+    ]
+    synced_state: dict[str, Any] = {
+        **(state or {}),
+        "conditions": synced_conditions,
+        "_open": False,
+    }
+    return serialised, False, "", {"display": "none"}, synced_state
 
 
 @callback(
@@ -434,33 +471,31 @@ def open_condition_modal_from_button(
     if not n_clicks or not global_conditions:
         return no_update, no_update
 
-    new_state: dict[str, Any] = dict(state) if state else {}
-
-    # Rebuild editable fields from global-conditions-store (last Apply values)
-    gc_conditions: list[dict[str, Any]] = global_conditions.get("conditions") or []
-    gc_by_orig: dict[str, dict[str, Any]] = {
-        c["original_name"]: c for c in gc_conditions
+    # occurrences only live in condition-config-state (not serialised to global store)
+    occ_by_orig: dict[str, list[Any]] = {
+        c.get("original_name", ""): c.get("occurrences", [])
+        for c in (state or {}).get("conditions", [])
     }
 
+    # Rebuild conditions from global-conditions-store as source of truth
+    gc_conditions: list[dict[str, Any]] = global_conditions.get("conditions") or []
     restored: list[dict[str, Any]] = []
-    for cond in new_state.get("conditions", []):
-        orig = cond.get("original_name", "")
-        gc = gc_by_orig.get(orig)
-        if gc:
-            restored.append({
-                **cond,
-                "name": gc["name"],
-                "duration": gc["duration"],
-                "tmin": gc["tmin"],
-                "tmax": gc["tmax"],
-                "baseline_tmin": gc["baseline_tmin"],
-                "baseline_tmax": gc["baseline_tmax"],
-            })
-        else:
-            restored.append(cond)
+    for gc_cond in gc_conditions:
+        orig = gc_cond.get("original_name", "")
+        restored.append({
+            "name": gc_cond["name"],
+            "original_name": orig,
+            "duration": gc_cond["duration"],
+            "tmin": gc_cond["tmin"],
+            "tmax": gc_cond["tmax"],
+            "baseline_tmin": gc_cond["baseline_tmin"],
+            "baseline_tmax": gc_cond["baseline_tmax"],
+            "occurrences": occ_by_orig.get(orig, []),
+        })
+
+    new_state: dict[str, Any] = dict(state) if state else {}
     new_state["conditions"] = restored
 
-    # Restore groups from store
     gc_groups = global_conditions.get("groups")
     if gc_groups is not None:
         new_state["groups"] = gc_groups
