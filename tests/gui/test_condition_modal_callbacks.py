@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from dash import no_update
 
 from nirspy.gui.callbacks.pipeline_callbacks import (
@@ -23,7 +22,6 @@ from nirspy.gui.callbacks.pipeline_callbacks import (
     cancel_condition_config,
     open_condition_modal_from_button,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -389,7 +387,9 @@ class TestOpenConditionModalFromButton:
         """tmin, tmax, baseline_tmin, baseline_tmax restored from gc_store."""
         gc_store = _gc_store(
             conditions=[
-                _gc_cond("HbO", duration=5.0, tmin=-3.0, tmax=20.0, baseline_tmin=-1.0, baseline_tmax=0.5)
+                _gc_cond(
+                    "HbO", duration=5.0, tmin=-3.0, tmax=20.0, baseline_tmin=-1.0, baseline_tmax=0.5
+                )
             ]
         )
         state = _state(conditions=[_cond("HbO")])

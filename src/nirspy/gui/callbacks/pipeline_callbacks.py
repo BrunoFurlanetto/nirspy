@@ -14,12 +14,12 @@ from typing import Any
 
 from dash import ALL, Input, Output, State, callback, ctx, no_update
 
-logger = logging.getLogger(__name__)
-
 from nirspy.blocks import registry
 from nirspy.domain.block import BlockSpec
 from nirspy.gui.components.param_editor import render_param_editor
 from nirspy.gui.components.pipeline_view import render_pipeline_view
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Condition-config modal callbacks (T-042j, T-042k)
@@ -79,7 +79,7 @@ def apply_condition_config(
 
     # Build ConditionConfig list
     condition_configs: list[ConditionConfig] = []
-    for raw_idx, cond in enumerate(raw_conditions):
+    for _raw_idx, cond in enumerate(raw_conditions):
         orig = cond.get("original_name") or cond.get("name", "")
         name = (cond.get("name") or orig).strip()
         if not name:
